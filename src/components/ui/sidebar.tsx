@@ -58,17 +58,32 @@ const adminNav: NavItem[] = [
   { icon: <Settings size={20} />, label: 'Config', href: '/admin/config' },
 ]
 
+// Staff sees a limited set of admin pages
+const staffAllowedHrefs = new Set([
+  '/admin', '/admin/reservas', '/admin/caja', '/admin/jugadores',
+  '/admin/tienda', '/admin/comunidad', '/admin/gimnasio',
+])
+
 interface SidebarProps {
   isAdmin?: boolean
+  memberRole?: string
   user?: { full_name?: string; email: string; avatar_url?: string }
   onLogout?: () => void
 }
 
-export function Sidebar({ isAdmin, user, onLogout }: SidebarProps) {
+export function Sidebar({ isAdmin, memberRole, user, onLogout }: SidebarProps) {
   const pathname = usePathname()
   const [collapsed, setCollapsed] = useState(false)
   const [mobileOpen, setMobileOpen] = useState(false)
-  const nav = isAdmin ? adminNav : playerNav
+
+  let nav: NavItem[]
+  if (!isAdmin) {
+    nav = playerNav
+  } else if (memberRole === 'staff') {
+    nav = adminNav.filter(item => staffAllowedHrefs.has(item.href))
+  } else {
+    nav = adminNav
+  }
 
   const NavContent = () => (
     <>

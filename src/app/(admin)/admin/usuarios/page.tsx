@@ -26,6 +26,8 @@ import {
   CreditCard,
   Heart,
   StickyNote,
+  UserPlus,
+  Edit2,
 } from 'lucide-react'
 import Link from 'next/link'
 
@@ -42,7 +44,6 @@ interface NmUser {
   is_active: boolean
   last_login_at: string | null
   created_at: string
-  // Virtuagym expansion fields
   emergency_contact: string | null
   medical_notes: string | null
   document_type: string | null
@@ -54,27 +55,36 @@ interface NmUser {
   notes: string | null
 }
 
+interface ClubMember {
+  user_id: string
+  role: string
+}
+
+const ROLE_LABELS: Record<string, string> = {
+  owner: 'Propietario',
+  admin: 'Administrador',
+  staff: 'Staff',
+  player: 'Jugador',
+}
+
+const ROLE_COLORS: Record<string, 'default' | 'info' | 'success' | 'warning' | 'danger'> = {
+  owner: 'danger',
+  admin: 'warning',
+  staff: 'info',
+  player: 'default',
+}
+
 // ─────────────────────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────────────────────
 function formatDate(iso: string | null) {
   if (!iso) return '—'
-  return new Date(iso).toLocaleDateString('es-AR', {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-  })
+  return new Date(iso).toLocaleDateString('es-AR', { day: '2-digit', month: 'short', year: 'numeric' })
 }
 
 function formatDateTime(iso: string | null) {
   if (!iso) return '—'
-  return new Date(iso).toLocaleString('es-AR', {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  })
+  return new Date(iso).toLocaleString('es-AR', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
 }
 
 function isThisMonth(iso: string) {
@@ -91,9 +101,7 @@ function initials(user: NmUser) {
   const name = user.full_name?.trim()
   if (!name) return user.email.charAt(0).toUpperCase()
   const parts = name.split(' ')
-  return parts.length >= 2
-    ? `${parts[0][0]}${parts[1][0]}`.toUpperCase()
-    : name.charAt(0).toUpperCase()
+  return parts.length >= 2 ? `${parts[0][0]}${parts[1][0]}`.toUpperCase() : name.charAt(0).toUpperCase()
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -102,99 +110,185 @@ function initials(user: NmUser) {
 export default function GestionUsuariosPage() {
   const { toast } = useToast()
 
-  // ── Estado principal ──
   const [users, setUsers] = useState<NmUser[]>([])
+  const [members, setMembers] = useState<ClubMember[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
+  const [filterRole, setFilterRole] = useState<string>('all')
 
-  // ── Modal detalle ──
+  // Modal detalle
   const [detailUser, setDetailUser] = useState<NmUser | null>(null)
   const [toggling, setToggling] = useState(false)
+  const [editingRole, setEditingRole] = useState(false)
+  const [selectedRole, setSelectedRole] = useState('')
+
+  // Modal crear usuario
+  const [createOpen, setCreateOpen] = useState(false)
+  const [creating, setCreating] = useState(false)
+  const [form, setForm] = useState({
+    email: '', password: '', full_name: '', phone: '', role: 'player',
+    document_type: '', document_number: '', address: '', postal_code: '',
+    emergency_contact: '', medical_notes: '', notes: '',
+  })
+
+  // Modal editar usuario
+  const [editOpen, setEditOpen] = useState(false)
+  const [editing, setEditing] = useState(false)
+  const [editForm, setEditForm] = useState({
+    full_name: '', phone: '', role: 'player',
+    document_type: '', document_number: '', address: '', postal_code: '',
+    emergency_contact: '', medical_notes: '', notes: '',
+  })
+  const [editUserId, setEditUserId] = useState('')
 
   // ─────────────────────────────────────────────────────────────
   // Carga de datos
   // ─────────────────────────────────────────────────────────────
   const loadUsers = useCallback(async () => {
     setLoading(true)
-    try {
-      const supabase = createClient()
-      const { data, error } = await supabase
-        .from('nm_users')
-        .select('id, full_name, email, phone, country, city, is_active, last_login_at, created_at, emergency_contact, medical_notes, document_type, document_number, address, postal_code, iban, virtuagym_id, notes')
-        .order('created_at', { ascending: false })
+    const supabase = createClient()
+    const [usersRes, membersRes] = await Promise.all([
+      supabase.from('nm_users').select('id, full_name, email, phone, country, city, is_active, last_login_at, created_at, emergency_contact, medical_notes, document_type, document_number, address, postal_code, iban, virtuagym_id, notes').order('created_at', { ascending: false }),
+      supabase.from('nm_club_members').select('user_id, role').eq('club_id', 1).eq('is_active', true),
+    ])
+    setUsers((usersRes.data ?? []) as NmUser[])
+    setMembers((membersRes.data ?? []) as ClubMember[])
+    setLoading(false)
+  }, [])
 
-      if (error) throw error
-      setUsers((data ?? []) as NmUser[])
-    } catch (err) {
-      console.error(err)
-      toast('error', 'No se pudieron cargar los usuarios')
-    } finally {
-      setLoading(false)
-    }
-  }, [toast])
+  useEffect(() => { loadUsers() }, [loadUsers])
 
-  useEffect(() => {
-    loadUsers()
-  }, [loadUsers])
+  function getUserRole(userId: string): string {
+    return members.find(m => m.user_id === userId)?.role || 'player'
+  }
 
   // ─────────────────────────────────────────────────────────────
-  // KPIs derivados
+  // KPIs
   // ─────────────────────────────────────────────────────────────
   const totalUsers = users.length
   const activeUsers = users.filter(u => u.is_active).length
+  const staffCount = members.filter(m => m.role === 'staff' || m.role === 'admin' || m.role === 'owner').length
   const newThisMonth = users.filter(u => isThisMonth(u.created_at)).length
 
   // ─────────────────────────────────────────────────────────────
-  // Filtrado por búsqueda
+  // Filtrado
   // ─────────────────────────────────────────────────────────────
   const filtered = users.filter(u => {
+    if (filterRole !== 'all' && getUserRole(u.id) !== filterRole) return false
     if (!search.trim()) return true
     const q = search.toLowerCase()
-    return (
-      (u.full_name ?? '').toLowerCase().includes(q) ||
-      u.email.toLowerCase().includes(q)
-    )
+    return (u.full_name ?? '').toLowerCase().includes(q) || u.email.toLowerCase().includes(q)
   })
 
   // ─────────────────────────────────────────────────────────────
-  // Abrir modal detalle
-  // ─────────────────────────────────────────────────────────────
-  function openDetail(user: NmUser) {
-    setDetailUser(user)
-  }
-
-  function closeDetail() {
-    setDetailUser(null)
-  }
-
-  // ─────────────────────────────────────────────────────────────
-  // Toggle is_active
+  // Toggle activo/inactivo
   // ─────────────────────────────────────────────────────────────
   async function toggleActive() {
     if (!detailUser) return
     setToggling(true)
-    try {
-      const supabase = createClient()
-      const newValue = !detailUser.is_active
-      const { error } = await supabase
-        .from('nm_users')
-        .update({ is_active: newValue })
-        .eq('id', detailUser.id)
-
-      if (error) throw error
-
-      const label = newValue ? 'activado' : 'desactivado'
-      toast('success', `Usuario ${label} correctamente`)
-
-      // Actualizar estado local sin recargar
+    const supabase = createClient()
+    const newValue = !detailUser.is_active
+    const { error } = await supabase.from('nm_users').update({ is_active: newValue }).eq('id', detailUser.id)
+    if (error) {
+      toast('error', 'Error al cambiar el estado')
+    } else {
+      toast('success', `Usuario ${newValue ? 'activado' : 'desactivado'}`)
       setDetailUser(prev => prev ? { ...prev, is_active: newValue } : null)
       setUsers(prev => prev.map(u => u.id === detailUser.id ? { ...u, is_active: newValue } : u))
-    } catch (err) {
-      console.error(err)
-      toast('error', 'Error al cambiar el estado del usuario')
-    } finally {
-      setToggling(false)
     }
+    setToggling(false)
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // Cambiar rol desde detalle
+  // ─────────────────────────────────────────────────────────────
+  async function handleChangeRole() {
+    if (!detailUser || !selectedRole) return
+    setEditingRole(true)
+    const res = await fetch('/api/users', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user_id: detailUser.id, role: selectedRole }),
+    })
+    const data = await res.json()
+    if (!res.ok) {
+      toast('error', data.error || 'Error cambiando rol')
+    } else {
+      toast('success', `Rol cambiado a ${ROLE_LABELS[selectedRole]}`)
+      setMembers(prev => {
+        const exists = prev.find(m => m.user_id === detailUser.id)
+        if (exists) return prev.map(m => m.user_id === detailUser.id ? { ...m, role: selectedRole } : m)
+        return [...prev, { user_id: detailUser.id, role: selectedRole }]
+      })
+    }
+    setEditingRole(false)
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // Crear usuario
+  // ─────────────────────────────────────────────────────────────
+  async function handleCreate(e: React.FormEvent) {
+    e.preventDefault()
+    if (!form.email || !form.password || !form.full_name) {
+      toast('error', 'Completá email, contraseña y nombre')
+      return
+    }
+    setCreating(true)
+    const res = await fetch('/api/users', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(form),
+    })
+    const data = await res.json()
+    if (!res.ok) {
+      toast('error', data.error || 'Error creando usuario')
+    } else {
+      toast('success', 'Usuario creado correctamente')
+      setCreateOpen(false)
+      setForm({ email: '', password: '', full_name: '', phone: '', role: 'player', document_type: '', document_number: '', address: '', postal_code: '', emergency_contact: '', medical_notes: '', notes: '' })
+      loadUsers()
+    }
+    setCreating(false)
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // Editar usuario
+  // ─────────────────────────────────────────────────────────────
+  function openEdit(user: NmUser) {
+    setEditUserId(user.id)
+    setEditForm({
+      full_name: user.full_name || '',
+      phone: user.phone || '',
+      role: getUserRole(user.id),
+      document_type: user.document_type || '',
+      document_number: user.document_number || '',
+      address: user.address || '',
+      postal_code: user.postal_code || '',
+      emergency_contact: user.emergency_contact || '',
+      medical_notes: user.medical_notes || '',
+      notes: user.notes || '',
+    })
+    setDetailUser(null)
+    setEditOpen(true)
+  }
+
+  async function handleEdit(e: React.FormEvent) {
+    e.preventDefault()
+    setEditing(true)
+    const res = await fetch('/api/users', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user_id: editUserId, ...editForm }),
+    })
+    const data = await res.json()
+    if (!res.ok) {
+      toast('error', data.error || 'Error actualizando')
+    } else {
+      toast('success', 'Usuario actualizado')
+      setEditOpen(false)
+      loadUsers()
+    }
+    setEditing(false)
   }
 
   // ─────────────────────────────────────────────────────────────
@@ -202,81 +296,70 @@ export default function GestionUsuariosPage() {
   // ─────────────────────────────────────────────────────────────
   return (
     <div className="space-y-6">
-
-      {/* Encabezado */}
-      <div className="flex items-center justify-between">
+      {/* Header */}
+      <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-bold text-white">Gestión de Usuarios</h1>
-          <p className="text-sm text-slate-400 mt-1">
-            Cuentas registradas en la plataforma
-          </p>
+          <p className="text-sm text-slate-400 mt-1">Cuentas, roles y permisos</p>
         </div>
         <div className="flex items-center gap-2">
+          <Button variant="primary" size="sm" onClick={() => setCreateOpen(true)}>
+            <UserPlus size={14} />
+            Nuevo Usuario
+          </Button>
           <Link href="/admin/importar">
             <Button variant="secondary" size="sm">
               <Upload size={14} />
-              Importar Virtuagym
+              Importar CSV
             </Button>
           </Link>
           <Button variant="secondary" size="sm" onClick={loadUsers} loading={loading}>
             <RefreshCw size={14} />
-            Actualizar
           </Button>
         </div>
       </div>
 
       {/* KPIs */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <KpiCard
-          title="Total usuarios"
-          value={totalUsers}
-          subtitle="registrados en la plataforma"
-          icon={<Users size={20} />}
-          color="#06b6d4"
-        />
-        <KpiCard
-          title="Usuarios activos"
-          value={activeUsers}
-          subtitle="con acceso habilitado"
-          icon={<UserCheck size={20} />}
-          color="#22c55e"
-        />
-        <KpiCard
-          title="Nuevos este mes"
-          value={newThisMonth}
-          subtitle="se registraron en abril"
-          icon={<Calendar size={20} />}
-          color="#f59e0b"
-        />
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+        <KpiCard title="Total" value={totalUsers} subtitle="usuarios" icon={<Users size={20} />} color="#06b6d4" />
+        <KpiCard title="Activos" value={activeUsers} subtitle="habilitados" icon={<UserCheck size={20} />} color="#22c55e" />
+        <KpiCard title="Staff / Admin" value={staffCount} subtitle="con acceso admin" icon={<Shield size={20} />} color="#f59e0b" />
+        <KpiCard title="Nuevos" value={newThisMonth} subtitle="este mes" icon={<Calendar size={20} />} color="#8b5cf6" />
       </div>
 
-      {/* Barra de búsqueda */}
-      <div className="relative max-w-sm">
-        <Search
-          size={16}
-          className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"
-        />
-        <input
-          type="text"
-          placeholder="Buscar por nombre o email..."
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          className="w-full rounded-lg border border-slate-600 bg-slate-800 pl-9 pr-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-cyan-500/40 focus:border-cyan-500"
-        />
+      {/* Filtros */}
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="relative flex-1 max-w-sm">
+          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+          <input
+            type="text"
+            placeholder="Buscar por nombre o email..."
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            className="w-full rounded-lg border border-slate-600 bg-slate-800 pl-9 pr-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-cyan-500/40 focus:border-cyan-500"
+          />
+        </div>
+        <div className="flex gap-1">
+          {['all', 'owner', 'admin', 'staff', 'player'].map(r => (
+            <button
+              key={r}
+              onClick={() => setFilterRole(r)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${filterRole === r ? 'bg-cyan-600 text-white' : 'bg-slate-700/50 text-slate-400 hover:text-white'}`}
+            >
+              {r === 'all' ? 'Todos' : ROLE_LABELS[r]}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Tabla */}
       <div className="rounded-xl border border-slate-700/50 bg-slate-800/50 overflow-hidden">
         {loading ? (
-          <div className="p-12 text-center text-slate-400 text-sm">
-            Cargando usuarios...
-          </div>
+          <div className="p-12 text-center text-slate-400 text-sm">Cargando usuarios...</div>
         ) : filtered.length === 0 ? (
           <div className="p-12 text-center">
             <p className="text-slate-400 text-sm">
-              {search
-                ? 'No se encontraron resultados para tu búsqueda.'
-                : 'No hay usuarios registrados todavía.'}
+              {search || filterRole !== 'all' ? 'No se encontraron resultados.' : 'No hay usuarios registrados.'}
             </p>
           </div>
         ) : (
@@ -284,84 +367,42 @@ export default function GestionUsuariosPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-slate-700/60">
-                  <th className="px-4 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider">
-                    Usuario
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider hidden md:table-cell">
-                    Teléfono
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider hidden lg:table-cell">
-                    País / Ciudad
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider">
-                    Estado
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider hidden xl:table-cell">
-                    Último acceso
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider hidden lg:table-cell">
-                    Registro
-                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider">Usuario</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider">Rol</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider hidden md:table-cell">Teléfono</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider">Estado</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider hidden lg:table-cell">Registro</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-700/40">
-                {filtered.map(user => (
-                  <tr
-                    key={user.id}
-                    onClick={() => openDetail(user)}
-                    className="hover:bg-slate-700/30 transition-colors cursor-pointer"
-                  >
-                    {/* Usuario */}
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-3">
-                        <div className="h-8 w-8 rounded-full bg-slate-700 flex items-center justify-center text-xs font-bold text-cyan-400 shrink-0">
-                          {initials(user)}
+                {filtered.map(user => {
+                  const role = getUserRole(user.id)
+                  return (
+                    <tr key={user.id} onClick={() => { setDetailUser(user); setSelectedRole(role) }} className="hover:bg-slate-700/30 transition-colors cursor-pointer">
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-3">
+                          <div className="h-8 w-8 rounded-full bg-slate-700 flex items-center justify-center text-xs font-bold text-cyan-400 shrink-0">{initials(user)}</div>
+                          <div className="min-w-0">
+                            <p className="font-medium text-white truncate">{displayName(user)}</p>
+                            <p className="text-xs text-slate-500 truncate">{user.email}</p>
+                          </div>
                         </div>
-                        <div className="min-w-0">
-                          <p className="font-medium text-white truncate">
-                            {displayName(user)}
-                          </p>
-                          <p className="text-xs text-slate-500 truncate">{user.email}</p>
-                        </div>
-                      </div>
-                    </td>
-
-                    {/* Teléfono */}
-                    <td className="px-4 py-3 text-slate-400 hidden md:table-cell">
-                      {user.phone ?? '—'}
-                    </td>
-
-                    {/* País / Ciudad */}
-                    <td className="px-4 py-3 text-slate-400 hidden lg:table-cell">
-                      {user.country || user.city
-                        ? [user.city, user.country].filter(Boolean).join(', ')
-                        : '—'}
-                    </td>
-
-                    {/* Estado */}
-                    <td className="px-4 py-3">
-                      <Badge variant={user.is_active ? 'success' : 'danger'}>
-                        {user.is_active ? 'Activo' : 'Inactivo'}
-                      </Badge>
-                    </td>
-
-                    {/* Último acceso */}
-                    <td className="px-4 py-3 text-slate-400 text-xs hidden xl:table-cell">
-                      {formatDateTime(user.last_login_at)}
-                    </td>
-
-                    {/* Registro */}
-                    <td className="px-4 py-3 text-slate-400 text-xs hidden lg:table-cell">
-                      {formatDate(user.created_at)}
-                    </td>
-                  </tr>
-                ))}
+                      </td>
+                      <td className="px-4 py-3">
+                        <Badge variant={ROLE_COLORS[role] || 'default'}>{ROLE_LABELS[role] || role}</Badge>
+                      </td>
+                      <td className="px-4 py-3 text-slate-400 hidden md:table-cell">{user.phone ?? '—'}</td>
+                      <td className="px-4 py-3">
+                        <Badge variant={user.is_active ? 'success' : 'danger'}>{user.is_active ? 'Activo' : 'Inactivo'}</Badge>
+                      </td>
+                      <td className="px-4 py-3 text-slate-400 text-xs hidden lg:table-cell">{formatDate(user.created_at)}</td>
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
           </div>
         )}
-
-        {/* Footer con conteo */}
         {!loading && filtered.length > 0 && (
           <div className="px-4 py-3 border-t border-slate-700/40 text-xs text-slate-500">
             Mostrando {filtered.length} de {totalUsers} usuarios
@@ -369,16 +410,17 @@ export default function GestionUsuariosPage() {
         )}
       </div>
 
-      {/* ─── Modal: Detalle de usuario ─── */}
+      {/* ─── Modal: Detalle ─── */}
       <Modal
         open={!!detailUser}
-        onClose={closeDetail}
+        onClose={() => setDetailUser(null)}
         title="Detalle de usuario"
         size="sm"
         footer={
           <>
-            <Button variant="secondary" size="sm" onClick={closeDetail} disabled={toggling}>
-              Cerrar
+            <Button variant="secondary" size="sm" onClick={() => setDetailUser(null)}>Cerrar</Button>
+            <Button variant="secondary" size="sm" onClick={() => detailUser && openEdit(detailUser)}>
+              <Edit2 size={14} /> Editar
             </Button>
             <Button
               variant={detailUser?.is_active ? 'danger' : 'primary'}
@@ -386,65 +428,51 @@ export default function GestionUsuariosPage() {
               onClick={toggleActive}
               loading={toggling}
             >
-              {detailUser?.is_active ? (
-                <>
-                  <UserX size={14} />
-                  Desactivar cuenta
-                </>
-              ) : (
-                <>
-                  <UserCheck size={14} />
-                  Activar cuenta
-                </>
-              )}
+              {detailUser?.is_active ? <><UserX size={14} /> Desactivar</> : <><UserCheck size={14} /> Activar</>}
             </Button>
           </>
         }
       >
         {detailUser && (
           <div className="space-y-4">
-            {/* Avatar + nombre */}
             <div className="flex items-center gap-4">
-              <div className="h-14 w-14 rounded-full bg-slate-700 flex items-center justify-center text-xl font-bold text-cyan-400 shrink-0">
-                {initials(detailUser)}
-              </div>
+              <div className="h-14 w-14 rounded-full bg-slate-700 flex items-center justify-center text-xl font-bold text-cyan-400 shrink-0">{initials(detailUser)}</div>
               <div>
-                <p className="text-base font-semibold text-white">
-                  {detailUser.full_name?.trim() || '(Sin nombre)'}
-                </p>
-                <Badge variant={detailUser.is_active ? 'success' : 'danger'} className="mt-1">
-                  {detailUser.is_active ? 'Cuenta activa' : 'Cuenta inactiva'}
-                </Badge>
+                <p className="text-base font-semibold text-white">{detailUser.full_name?.trim() || '(Sin nombre)'}</p>
+                <div className="flex items-center gap-2 mt-1">
+                  <Badge variant={detailUser.is_active ? 'success' : 'danger'}>{detailUser.is_active ? 'Activo' : 'Inactivo'}</Badge>
+                  <Badge variant={ROLE_COLORS[getUserRole(detailUser.id)] || 'default'}>{ROLE_LABELS[getUserRole(detailUser.id)] || getUserRole(detailUser.id)}</Badge>
+                </div>
               </div>
             </div>
 
-            {/* Datos */}
+            {/* Cambiar rol inline */}
+            <div className="flex items-center gap-2 px-3 py-2 bg-slate-700/30 rounded-lg">
+              <span className="text-xs text-slate-400">Rol:</span>
+              <select
+                value={selectedRole}
+                onChange={e => setSelectedRole(e.target.value)}
+                className="bg-slate-800 border border-slate-600 rounded px-2 py-1 text-sm text-white flex-1"
+              >
+                <option value="player">Jugador</option>
+                <option value="staff">Staff</option>
+                <option value="admin">Administrador</option>
+                <option value="owner">Propietario</option>
+              </select>
+              <Button size="sm" onClick={handleChangeRole} loading={editingRole} disabled={selectedRole === getUserRole(detailUser.id)}>
+                Cambiar
+              </Button>
+            </div>
+
             <div className="rounded-lg bg-slate-700/40 divide-y divide-slate-700/60">
               <DetailRow icon={<Mail size={14} />} label="Email" value={detailUser.email} />
               <DetailRow icon={<Phone size={14} />} label="Teléfono" value={detailUser.phone ?? '—'} />
-              <DetailRow
-                icon={<Globe size={14} />}
-                label="País"
-                value={detailUser.country ?? '—'}
-              />
-              <DetailRow
-                icon={<MapPin size={14} />}
-                label="Ciudad"
-                value={detailUser.city ?? '—'}
-              />
-              <DetailRow
-                icon={<Clock size={14} />}
-                label="Último acceso"
-                value={formatDateTime(detailUser.last_login_at)}
-              />
-              <DetailRow
-                icon={<Calendar size={14} />}
-                label="Registro"
-                value={formatDateTime(detailUser.created_at)}
-              />
+              <DetailRow icon={<Globe size={14} />} label="País" value={detailUser.country ?? '—'} />
+              <DetailRow icon={<MapPin size={14} />} label="Ciudad" value={detailUser.city ?? '—'} />
+              <DetailRow icon={<Clock size={14} />} label="Último acceso" value={formatDateTime(detailUser.last_login_at)} />
+              <DetailRow icon={<Calendar size={14} />} label="Registro" value={formatDateTime(detailUser.created_at)} />
             </div>
 
-            {/* Datos adicionales (Virtuagym) */}
             {(detailUser.document_type || detailUser.address || detailUser.emergency_contact || detailUser.iban || detailUser.notes) && (
               <div className="rounded-lg bg-slate-700/40 divide-y divide-slate-700/60">
                 {(detailUser.document_type || detailUser.document_number) && (
@@ -468,34 +496,152 @@ export default function GestionUsuariosPage() {
               </div>
             )}
 
-            {/* ID técnico */}
             <p className="text-xs text-slate-600 font-mono break-all">
               ID: {detailUser.id}{detailUser.virtuagym_id ? ` | VG: ${detailUser.virtuagym_id}` : ''}
             </p>
+
+            {/* Explicación de roles */}
+            <div className="bg-slate-700/20 rounded-lg p-3 text-xs text-slate-500 space-y-1">
+              <p className="font-medium text-slate-400">¿Qué puede hacer cada rol?</p>
+              <p><span className="text-red-400">Propietario:</span> Acceso total, configuración del club</p>
+              <p><span className="text-yellow-400">Administrador:</span> Gestión completa (usuarios, caja, reservas, torneos...)</p>
+              <p><span className="text-cyan-400">Staff:</span> Reservas, caja, tienda, comunidad (sin config ni reportes)</p>
+              <p><span className="text-slate-300">Jugador:</span> Solo ve su panel de jugador (reservas, torneos, gimnasio...)</p>
+            </div>
           </div>
         )}
+      </Modal>
+
+      {/* ─── Modal: Crear Usuario ─── */}
+      <Modal
+        open={createOpen}
+        onClose={() => setCreateOpen(false)}
+        title="Crear nuevo usuario"
+        size="md"
+        footer={
+          <>
+            <Button variant="secondary" size="sm" onClick={() => setCreateOpen(false)}>Cancelar</Button>
+            <Button variant="primary" size="sm" onClick={handleCreate} loading={creating}>
+              <UserPlus size={14} /> Crear Usuario
+            </Button>
+          </>
+        }
+      >
+        <form onSubmit={handleCreate} className="space-y-4">
+          {/* Datos obligatorios */}
+          <div className="bg-cyan-500/5 border border-cyan-500/20 rounded-lg p-4 space-y-3">
+            <p className="text-xs font-medium text-cyan-400 uppercase">Datos obligatorios</p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <FormField label="Nombre completo *" value={form.full_name} onChange={v => setForm(f => ({ ...f, full_name: v }))} placeholder="Juan Pérez" />
+              <FormField label="Email *" value={form.email} onChange={v => setForm(f => ({ ...f, email: v }))} placeholder="juan@email.com" type="email" />
+              <FormField label="Contraseña *" value={form.password} onChange={v => setForm(f => ({ ...f, password: v }))} placeholder="Mínimo 6 caracteres" type="password" />
+              <div>
+                <label className="block text-xs text-slate-400 mb-1">Rol *</label>
+                <select
+                  value={form.role}
+                  onChange={e => setForm(f => ({ ...f, role: e.target.value }))}
+                  className="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-cyan-500/40"
+                >
+                  <option value="player">Jugador</option>
+                  <option value="staff">Staff (acceso limitado al admin)</option>
+                  <option value="admin">Administrador (acceso completo)</option>
+                  <option value="owner">Propietario</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          {/* Datos opcionales */}
+          <div className="bg-slate-700/20 rounded-lg p-4 space-y-3">
+            <p className="text-xs font-medium text-slate-400 uppercase">Datos opcionales</p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <FormField label="Teléfono" value={form.phone} onChange={v => setForm(f => ({ ...f, phone: v }))} placeholder="+34 600 000 000" />
+              <div className="grid grid-cols-2 gap-2">
+                <FormField label="Tipo doc." value={form.document_type} onChange={v => setForm(f => ({ ...f, document_type: v }))} placeholder="DNI/NIE" />
+                <FormField label="Nro doc." value={form.document_number} onChange={v => setForm(f => ({ ...f, document_number: v }))} placeholder="12345678X" />
+              </div>
+              <FormField label="Dirección" value={form.address} onChange={v => setForm(f => ({ ...f, address: v }))} placeholder="Calle, número..." />
+              <FormField label="Código postal" value={form.postal_code} onChange={v => setForm(f => ({ ...f, postal_code: v }))} placeholder="28001" />
+              <FormField label="Contacto emergencia" value={form.emergency_contact} onChange={v => setForm(f => ({ ...f, emergency_contact: v }))} placeholder="Nombre - Teléfono" />
+              <FormField label="Notas médicas" value={form.medical_notes} onChange={v => setForm(f => ({ ...f, medical_notes: v }))} placeholder="Alergias, condiciones..." />
+            </div>
+            <FormField label="Notas internas" value={form.notes} onChange={v => setForm(f => ({ ...f, notes: v }))} placeholder="Notas sobre este usuario..." />
+          </div>
+        </form>
+      </Modal>
+
+      {/* ─── Modal: Editar Usuario ─── */}
+      <Modal
+        open={editOpen}
+        onClose={() => setEditOpen(false)}
+        title="Editar usuario"
+        size="md"
+        footer={
+          <>
+            <Button variant="secondary" size="sm" onClick={() => setEditOpen(false)}>Cancelar</Button>
+            <Button variant="primary" size="sm" onClick={handleEdit} loading={editing}>
+              <Edit2 size={14} /> Guardar Cambios
+            </Button>
+          </>
+        }
+      >
+        <form onSubmit={handleEdit} className="space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <FormField label="Nombre completo" value={editForm.full_name} onChange={v => setEditForm(f => ({ ...f, full_name: v }))} />
+            <FormField label="Teléfono" value={editForm.phone} onChange={v => setEditForm(f => ({ ...f, phone: v }))} />
+            <div>
+              <label className="block text-xs text-slate-400 mb-1">Rol</label>
+              <select
+                value={editForm.role}
+                onChange={e => setEditForm(f => ({ ...f, role: e.target.value }))}
+                className="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-cyan-500/40"
+              >
+                <option value="player">Jugador</option>
+                <option value="staff">Staff</option>
+                <option value="admin">Administrador</option>
+                <option value="owner">Propietario</option>
+              </select>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <FormField label="Tipo doc." value={editForm.document_type} onChange={v => setEditForm(f => ({ ...f, document_type: v }))} />
+              <FormField label="Nro doc." value={editForm.document_number} onChange={v => setEditForm(f => ({ ...f, document_number: v }))} />
+            </div>
+            <FormField label="Dirección" value={editForm.address} onChange={v => setEditForm(f => ({ ...f, address: v }))} />
+            <FormField label="Código postal" value={editForm.postal_code} onChange={v => setEditForm(f => ({ ...f, postal_code: v }))} />
+            <FormField label="Contacto emergencia" value={editForm.emergency_contact} onChange={v => setEditForm(f => ({ ...f, emergency_contact: v }))} />
+            <FormField label="Notas médicas" value={editForm.medical_notes} onChange={v => setEditForm(f => ({ ...f, medical_notes: v }))} />
+          </div>
+          <FormField label="Notas internas" value={editForm.notes} onChange={v => setEditForm(f => ({ ...f, notes: v }))} />
+        </form>
       </Modal>
     </div>
   )
 }
 
 // ─────────────────────────────────────────────────────────────
-// Componente auxiliar para filas del modal
+// Componentes auxiliares
 // ─────────────────────────────────────────────────────────────
-function DetailRow({
-  icon,
-  label,
-  value,
-}: {
-  icon: React.ReactNode
-  label: string
-  value: string
-}) {
+function DetailRow({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
   return (
     <div className="flex items-center gap-3 px-4 py-2.5">
       <span className="text-slate-500 shrink-0">{icon}</span>
       <span className="text-xs text-slate-400 w-24 shrink-0">{label}</span>
       <span className="text-sm text-white truncate">{value}</span>
+    </div>
+  )
+}
+
+function FormField({ label, value, onChange, placeholder, type = 'text' }: { label: string; value: string; onChange: (v: string) => void; placeholder?: string; type?: string }) {
+  return (
+    <div>
+      <label className="block text-xs text-slate-400 mb-1">{label}</label>
+      <input
+        type={type}
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        placeholder={placeholder}
+        className="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-cyan-500/40"
+      />
     </div>
   )
 }

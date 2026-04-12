@@ -31,6 +31,7 @@ function AdminShell({ children }: { children: React.ReactNode }) {
     <div className="flex min-h-screen">
       <Sidebar
         isAdmin
+        memberRole={member?.role}
         user={user ? { full_name: user.full_name, email: user.email, avatar_url: user.avatar_url } : undefined}
         onLogout={logout}
       />
