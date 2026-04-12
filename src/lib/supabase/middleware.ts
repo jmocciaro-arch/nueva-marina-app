@@ -1,6 +1,15 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
+// Public routes that don't need auth
+const PUBLIC_ROUTES = ['/', '/login', '/api/auth']
+
+function isPublicRoute(pathname: string) {
+  return PUBLIC_ROUTES.some(route =>
+    pathname === route || pathname.startsWith(route + '/')
+  )
+}
+
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request })
 
@@ -13,7 +22,7 @@ export async function updateSession(request: NextRequest) {
           return request.cookies.getAll()
         },
         setAll(cookiesToSet) {
-          cookiesToSet.forEach(({ name, value, options }) =>
+          cookiesToSet.forEach(({ name, value }) =>
             request.cookies.set(name, value)
           )
           supabaseResponse = NextResponse.next({ request })
@@ -25,22 +34,31 @@ export async function updateSession(request: NextRequest) {
     }
   )
 
+  // IMPORTANT: call getUser() to refresh the session token
   const { data: { user } } = await supabase.auth.getUser()
 
-  // Protected routes
-  const isProtectedRoute = request.nextUrl.pathname.startsWith('/dashboard') ||
-    request.nextUrl.pathname.startsWith('/admin') ||
-    request.nextUrl.pathname.startsWith('/mis-')
+  const pathname = request.nextUrl.pathname
 
-  if (isProtectedRoute && !user) {
+  // Public routes — allow through
+  if (isPublicRoute(pathname)) {
+    return supabaseResponse
+  }
+
+  // API routes (except auth) — allow through but check auth in the handler
+  if (pathname.startsWith('/api/')) {
+    return supabaseResponse
+  }
+
+  // All other routes need authentication
+  if (!user) {
     const url = request.nextUrl.clone()
     url.pathname = '/login'
-    url.searchParams.set('redirect', request.nextUrl.pathname)
+    url.searchParams.set('redirect', pathname)
     return NextResponse.redirect(url)
   }
 
-  // Admin routes
-  if (request.nextUrl.pathname.startsWith('/admin') && user) {
+  // Admin routes need admin/staff/owner role
+  if (pathname.startsWith('/admin')) {
     const { data: member } = await supabase
       .from('nm_club_members')
       .select('role')
