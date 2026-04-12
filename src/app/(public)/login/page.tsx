@@ -3,21 +3,28 @@
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { createClient } from '@/lib/supabase/client'
-import { Suspense, useState } from 'react'
+import { Suspense, useState, useCallback } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
+import { Eye, EyeOff } from 'lucide-react'
+import { GoogleReCaptchaProvider, useGoogleReCaptcha } from 'react-google-recaptcha-v3'
+
+const RECAPTCHA_SITE_KEY = process.env.NEXT_PUBLIC_RECAPTCHA_SITE_KEY || '6LeIxAcTAAAAAJcZVRqyHh71UMIEGNQ_MXjiZKhI'
 
 export default function LoginPage() {
   return (
-    <Suspense fallback={<div className="min-h-screen flex items-center justify-center bg-[#0b1120]"><div className="w-8 h-8 border-2 border-cyan-500 border-t-transparent rounded-full animate-spin" /></div>}>
-      <LoginForm />
-    </Suspense>
+    <GoogleReCaptchaProvider reCaptchaKey={RECAPTCHA_SITE_KEY}>
+      <Suspense fallback={<div className="min-h-screen flex items-center justify-center bg-[#0b1120]"><div className="w-8 h-8 border-2 border-cyan-500 border-t-transparent rounded-full animate-spin" /></div>}>
+        <LoginForm />
+      </Suspense>
+    </GoogleReCaptchaProvider>
   )
 }
 
 function LoginForm() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
   const [isRegister, setIsRegister] = useState(false)
   const [fullName, setFullName] = useState('')
   const [phone, setPhone] = useState('')
@@ -26,19 +33,34 @@ function LoginForm() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const redirect = searchParams.get('redirect') || '/dashboard'
+  const { executeRecaptcha } = useGoogleReCaptcha()
 
-  async function handleSubmit(e: React.FormEvent) {
+  const handleSubmit = useCallback(async (e: React.FormEvent) => {
     e.preventDefault()
     setLoading(true)
     setError('')
     const supabase = createClient()
 
     if (isRegister) {
+      // Verify captcha for registration
+      if (!executeRecaptcha) {
+        setError('Error al cargar captcha. Recarga la pagina.')
+        setLoading(false)
+        return
+      }
+      const captchaToken = await executeRecaptcha('register')
+      if (!captchaToken) {
+        setError('Verificacion de captcha fallida. Intenta de nuevo.')
+        setLoading(false)
+        return
+      }
+
       const { data, error: signUpError } = await supabase.auth.signUp({
         email,
         password,
         options: {
           data: { full_name: fullName, phone },
+          captchaToken,
         },
       })
       if (signUpError) {
@@ -65,18 +87,31 @@ function LoginForm() {
       }
       router.push(redirect)
     } else {
-      const { error: signInError } = await supabase.auth.signInWithPassword({
+      const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
         email,
         password,
       })
       if (signInError) {
-        setError(signInError.message === 'Invalid login credentials' ? 'Email o contraseña incorrectos' : signInError.message)
+        setError(signInError.message === 'Invalid login credentials' ? 'Email o contrasena incorrectos' : signInError.message)
         setLoading(false)
         return
       }
+      // Check if user is admin to redirect accordingly
+      if (signInData.user) {
+        const { data: membership } = await supabase
+          .from('nm_club_members')
+          .select('role')
+          .eq('user_id', signInData.user.id)
+          .in('role', ['owner', 'admin', 'staff'])
+          .single()
+        if (membership) {
+          router.push('/admin')
+          return
+        }
+      }
       router.push(redirect)
     }
-  }
+  }, [isRegister, email, password, fullName, phone, redirect, router, executeRecaptcha])
 
   async function handleGoogleLogin() {
     const supabase = createClient()
@@ -139,15 +174,36 @@ function LoginForm() {
               onChange={e => setEmail(e.target.value)}
               required
             />
-            <Input
-              label="Contrasena"
-              type="password"
-              placeholder="********"
-              value={password}
-              onChange={e => setPassword(e.target.value)}
-              required
-              minLength={6}
-            />
+            {/* Password with eye toggle */}
+            <div className="space-y-1">
+              <label className="block text-sm font-medium text-slate-300">Contrasena</label>
+              <div className="relative">
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  placeholder="********"
+                  value={password}
+                  onChange={e => setPassword(e.target.value)}
+                  required
+                  minLength={6}
+                  className="w-full rounded-lg border border-slate-600 bg-slate-800 px-3 py-2 pr-10 text-sm text-white placeholder-slate-500 transition-colors focus:outline-none focus:ring-2 focus:ring-cyan-500/40 focus:border-cyan-500"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-white transition-colors"
+                  tabIndex={-1}
+                >
+                  {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                </button>
+              </div>
+            </div>
+
+            {isRegister && (
+              <p className="text-xs text-slate-500">
+                Este sitio esta protegido por reCAPTCHA de Google.
+              </p>
+            )}
+
             <Button type="submit" loading={loading} className="w-full">
               {isRegister ? 'Registrarse' : 'Entrar'}
             </Button>

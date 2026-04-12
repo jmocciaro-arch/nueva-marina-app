@@ -4,7 +4,9 @@ import { cn } from '@/lib/utils'
 import {
   LayoutDashboard, Calendar, Trophy, Medal, Dumbbell, ShoppingBag,
   Users, Banknote, Settings, ChevronLeft, ChevronRight, LogOut,
-  Swords, BarChart3, Bell, Lightbulb, Search, Menu, X
+  Swords, BarChart3, Bell, Lightbulb, Search, Menu, X,
+  Receipt, DoorOpen, MessageSquare, Target, ClipboardList, UserCog,
+  QrCode, CreditCard
 } from 'lucide-react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
@@ -25,21 +27,32 @@ const playerNav: NavItem[] = [
   { icon: <Medal size={20} />, label: 'Mis Ligas', href: '/mis-ligas' },
   { icon: <BarChart3 size={20} />, label: 'Ranking', href: '/ranking' },
   { icon: <Dumbbell size={20} />, label: 'Gimnasio', href: '/gimnasio' },
+  { icon: <ClipboardList size={20} />, label: 'Mi Entrenamiento', href: '/mi-entrenamiento' },
+  { icon: <CreditCard size={20} />, label: 'Mi Suscripcion', href: '/mi-suscripcion' },
   { icon: <ShoppingBag size={20} />, label: 'Tienda', href: '/tienda' },
   { icon: <Search size={20} />, label: 'Buscar Partido', href: '/buscar-partido' },
+  { icon: <QrCode size={20} />, label: 'Mi Acceso', href: '/mi-acceso' },
+  { icon: <MessageSquare size={20} />, label: 'Comunidad', href: '/comunidad' },
+  { icon: <Target size={20} />, label: 'Retos', href: '/retos' },
 ]
 
 const adminNav: NavItem[] = [
   { icon: <LayoutDashboard size={20} />, label: 'Dashboard', href: '/admin' },
   { icon: <Calendar size={20} />, label: 'Reservas', href: '/admin/reservas' },
   { icon: <Banknote size={20} />, label: 'Caja', href: '/admin/caja' },
+  { icon: <Receipt size={20} />, label: 'Facturacion', href: '/admin/facturacion' },
   { icon: <Users size={20} />, label: 'Usuarios', href: '/admin/usuarios' },
   { icon: <Users size={20} />, label: 'Jugadores', href: '/admin/jugadores' },
   { icon: <Settings size={20} />, label: 'Pistas', href: '/admin/pistas' },
   { icon: <Trophy size={20} />, label: 'Torneos', href: '/admin/torneos' },
   { icon: <Medal size={20} />, label: 'Ligas', href: '/admin/ligas' },
   { icon: <Dumbbell size={20} />, label: 'Gimnasio', href: '/admin/gimnasio' },
+  { icon: <ClipboardList size={20} />, label: 'Entrenamiento', href: '/admin/entrenamiento' },
   { icon: <ShoppingBag size={20} />, label: 'Tienda', href: '/admin/tienda' },
+  { icon: <DoorOpen size={20} />, label: 'Accesos', href: '/admin/accesos' },
+  { icon: <MessageSquare size={20} />, label: 'Comunidad', href: '/admin/comunidad' },
+  { icon: <Target size={20} />, label: 'Retos', href: '/admin/retos' },
+  { icon: <UserCog size={20} />, label: 'Staff', href: '/admin/staff' },
   { icon: <Lightbulb size={20} />, label: 'Innovacion', href: '/admin/innovacion' },
   { icon: <BarChart3 size={20} />, label: 'Reportes', href: '/admin/reportes' },
   { icon: <Settings size={20} />, label: 'Config', href: '/admin/config' },

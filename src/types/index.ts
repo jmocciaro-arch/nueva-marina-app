@@ -62,6 +62,16 @@ export interface User {
   is_active: boolean
   last_login_at?: string
   created_at: string
+  // Virtuagym expansion fields
+  emergency_contact?: string
+  medical_notes?: string
+  document_type?: string
+  document_number?: string
+  address?: string
+  postal_code?: string
+  iban?: string
+  virtuagym_id?: string
+  notes?: string
 }
 
 export interface ClubMember {
@@ -469,4 +479,317 @@ export interface Notification {
   data?: Record<string, unknown>
   is_read: boolean
   sent_at: string
+}
+
+// =============================================
+// EXPANSIÓN VIRTUAGYM
+// =============================================
+
+// VIRTUAGYM SYNC
+export interface VirtuagymSync {
+  id: number
+  club_id: number
+  entity_type: string
+  virtuagym_id: string
+  nm_entity_type: string
+  nm_entity_id: string
+  last_synced_at: string
+  sync_status: 'synced' | 'pending' | 'error'
+  sync_data?: Record<string, unknown>
+}
+
+// ACCESS CONTROL
+export interface AccessPoint {
+  id: number
+  club_id: number
+  name: string
+  type: 'turnstile' | 'gate' | 'door'
+  location?: string
+  hardware_id?: string
+  relay_endpoint?: string
+  relay_method: 'http' | 'mqtt' | 'websocket'
+  is_active: boolean
+  config: Record<string, unknown>
+  created_at: string
+}
+
+export interface AccessCredential {
+  id: number
+  club_id: number
+  user_id: string
+  type: 'qr' | 'nfc' | 'fingerprint' | 'facial' | 'pin'
+  credential_data: string
+  is_active: boolean
+  expires_at?: string
+  created_at: string
+  last_used_at?: string
+  // Joined
+  user?: User
+}
+
+export interface AccessLog {
+  id: number
+  club_id: number
+  user_id?: string
+  access_point_id?: number
+  credential_type?: string
+  direction: 'in' | 'out'
+  granted: boolean
+  denial_reason?: string
+  timestamp: string
+  // Joined
+  user?: User
+  access_point?: AccessPoint
+}
+
+// SUBSCRIPTIONS & BILLING
+export interface SubscriptionPlan {
+  id: number
+  club_id: number
+  name: string
+  slug?: string
+  description?: string
+  price: number
+  billing_cycle: 'monthly' | 'quarterly' | 'semiannual' | 'annual'
+  features: string[]
+  includes_gym: boolean
+  includes_courts: boolean
+  court_discount_pct: number
+  max_classes_per_week?: number
+  max_bookings_per_week?: number
+  access_hours?: { start: string; end: string }
+  is_active: boolean
+  sort_order: number
+  created_at: string
+}
+
+export interface Subscription {
+  id: number
+  club_id: number
+  user_id: string
+  plan_id: number
+  status: 'active' | 'past_due' | 'cancelled' | 'paused' | 'expired'
+  start_date: string
+  current_period_start?: string
+  current_period_end?: string
+  cancel_at_period_end: boolean
+  cancelled_at?: string
+  payment_method?: string
+  stripe_subscription_id?: string
+  notes?: string
+  created_at: string
+  // Joined
+  plan?: SubscriptionPlan
+  user?: User
+}
+
+export interface Invoice {
+  id: number
+  club_id: number
+  user_id?: string
+  invoice_number: string
+  subscription_id?: number
+  items: InvoiceItem[]
+  subtotal: number
+  tax: number
+  total: number
+  status: 'pending' | 'paid' | 'overdue' | 'cancelled' | 'refunded'
+  due_date?: string
+  paid_at?: string
+  payment_method?: string
+  payment_reference?: string
+  pdf_url?: string
+  notes?: string
+  created_at: string
+  // Joined
+  user?: User
+}
+
+export interface InvoiceItem {
+  description: string
+  qty: number
+  unit_price: number
+  tax_rate: number
+  total: number
+}
+
+export interface CreditPack {
+  id: number
+  club_id: number
+  name: string
+  type: 'class' | 'booking' | 'mixed'
+  credits: number
+  price: number
+  valid_days: number
+  applicable_to?: string[]
+  is_active: boolean
+  created_at: string
+}
+
+export interface UserCredit {
+  id: number
+  club_id: number
+  user_id: string
+  pack_id: number
+  total_credits: number
+  used_credits: number
+  purchased_at: string
+  expires_at?: string
+  status: 'active' | 'exhausted' | 'expired'
+  // Joined
+  pack?: CreditPack
+}
+
+// COMMUNITY
+export interface Post {
+  id: number
+  club_id: number
+  author_id: string
+  type: 'post' | 'announcement' | 'event' | 'achievement' | 'result'
+  content: string
+  images: string[]
+  link_url?: string
+  link_preview?: { title: string; description: string; image: string }
+  is_pinned: boolean
+  visibility: 'public' | 'members' | 'admin_only'
+  likes_count: number
+  comments_count: number
+  created_at: string
+  updated_at: string
+  // Joined
+  author?: User
+  user_liked?: boolean
+}
+
+export interface PostComment {
+  id: number
+  post_id: number
+  author_id: string
+  content: string
+  parent_id?: number
+  likes_count: number
+  created_at: string
+  // Joined
+  author?: User
+}
+
+// CHALLENGES / GAMIFICATION
+export interface Challenge {
+  id: number
+  club_id: number
+  name: string
+  description?: string
+  type: 'individual' | 'team' | 'club_wide'
+  category?: string
+  metric: string
+  target_value: number
+  start_date?: string
+  end_date?: string
+  reward_type?: string
+  reward_value?: string
+  banner_url?: string
+  is_active: boolean
+  created_at: string
+}
+
+export interface ChallengeParticipant {
+  id: number
+  challenge_id: number
+  user_id: string
+  current_value: number
+  completed: boolean
+  completed_at?: string
+  joined_at: string
+  // Joined
+  user?: User
+}
+
+export interface Badge {
+  id: number
+  club_id: number
+  name: string
+  slug: string
+  description?: string
+  icon_url?: string
+  category?: string
+  criteria?: Record<string, unknown>
+}
+
+export interface UserBadge {
+  id: number
+  user_id: string
+  badge_id: number
+  awarded_at: string
+  // Joined
+  badge?: Badge
+}
+
+// TRAINING
+export interface TrainingPlan {
+  id: number
+  club_id: number
+  name: string
+  description?: string
+  created_by?: string
+  target_level?: 'beginner' | 'intermediate' | 'advanced'
+  duration_weeks?: number
+  goal?: string
+  schedule: { day: number; workout_id: number }[]
+  is_template: boolean
+  is_active: boolean
+  created_at: string
+}
+
+export interface UserTrainingPlan {
+  id: number
+  user_id: string
+  plan_id: number
+  assigned_by?: string
+  start_date?: string
+  status: 'active' | 'completed' | 'paused'
+  progress: Record<string, unknown>
+  created_at: string
+  // Joined
+  plan?: TrainingPlan
+}
+
+// PRODUCT CATEGORIES
+export interface ProductCategory {
+  id: number
+  club_id: number
+  name: string
+  slug?: string
+  parent_id?: number
+  image_url?: string
+  sort_order: number
+  is_active: boolean
+}
+
+// STAFF
+export interface StaffSchedule {
+  id: number
+  club_id: number
+  user_id: string
+  day_of_week: number
+  start_time: string
+  end_time: string
+  role?: string
+  is_active: boolean
+  // Joined
+  user?: User
+}
+
+export interface StaffShift {
+  id: number
+  club_id: number
+  user_id?: string
+  date: string
+  check_in?: string
+  check_out?: string
+  scheduled_start?: string
+  scheduled_end?: string
+  notes?: string
+  status: 'scheduled' | 'active' | 'completed' | 'absent'
+  // Joined
+  user?: User
 }
