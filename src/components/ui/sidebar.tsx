@@ -44,6 +44,7 @@ const adminNav: NavItem[] = [
   { icon: <Users size={20} />, label: 'Usuarios', href: '/admin/usuarios' },
   { icon: <Users size={20} />, label: 'Jugadores', href: '/admin/jugadores' },
   { icon: <Settings size={20} />, label: 'Pistas', href: '/admin/pistas' },
+  { icon: <Banknote size={20} />, label: 'Precios', href: '/admin/precios' },
   { icon: <Trophy size={20} />, label: 'Torneos', href: '/admin/torneos' },
   { icon: <Medal size={20} />, label: 'Ligas', href: '/admin/ligas' },
   { icon: <Dumbbell size={20} />, label: 'Gimnasio', href: '/admin/gimnasio' },
