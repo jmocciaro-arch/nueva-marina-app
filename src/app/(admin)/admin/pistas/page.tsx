@@ -269,6 +269,100 @@ export default function ConfigurarPistasPage() {
     setSavingCourt(false)
   }
 
+  // ── Bulk pricing modal ──────────────────────────────────────────────────────
+
+  const [bulkOpen, setBulkOpen] = useState(false)
+  const [bulkSaving, setBulkSaving] = useState(false)
+  const [bulkForm, setBulkForm] = useState({
+    open_time: '08:00',
+    close_time: '00:00',
+    slot_duration: '90',
+    price_per_slot: '24',
+    is_peak: true,
+    peak_price: '30',
+    peak_start: '17:00',
+    peak_end: '21:00',
+    apply_to: 'all' as 'all' | 'selected',
+    selected_courts: [] as number[],
+    selected_days: [1, 2, 3, 4, 5, 6, 0] as number[],
+  })
+
+  function toggleBulkDay(day: number) {
+    setBulkForm(f => ({
+      ...f,
+      selected_days: f.selected_days.includes(day)
+        ? f.selected_days.filter(d => d !== day)
+        : [...f.selected_days, day],
+    }))
+  }
+
+  function toggleBulkCourt(courtId: number) {
+    setBulkForm(f => ({
+      ...f,
+      selected_courts: f.selected_courts.includes(courtId)
+        ? f.selected_courts.filter(id => id !== courtId)
+        : [...f.selected_courts, courtId],
+    }))
+  }
+
+  async function saveBulkPricing() {
+    const targetCourts = bulkForm.apply_to === 'all'
+      ? courts
+      : courts.filter(c => bulkForm.selected_courts.includes(c.id))
+
+    if (targetCourts.length === 0) {
+      toast('warning', 'Seleccioná al menos una pista')
+      return
+    }
+    if (bulkForm.selected_days.length === 0) {
+      toast('warning', 'Seleccioná al menos un día')
+      return
+    }
+
+    setBulkSaving(true)
+    const supabase = createClient()
+    let successCount = 0
+    let errorCount = 0
+
+    for (const court of targetCourts) {
+      for (const day of bulkForm.selected_days) {
+        const existing = schedules.find(
+          s => s.court_id === court.id && s.day_of_week === day
+        )
+
+        const payload = {
+          court_id: court.id,
+          day_of_week: day,
+          open_time: bulkForm.open_time,
+          close_time: bulkForm.close_time,
+          slot_duration: parseInt(bulkForm.slot_duration) || 90,
+          price_per_slot: bulkForm.price_per_slot ? parseFloat(bulkForm.price_per_slot) : null,
+          is_peak: bulkForm.is_peak,
+          peak_price: bulkForm.is_peak && bulkForm.peak_price ? parseFloat(bulkForm.peak_price) : null,
+          peak_start: bulkForm.is_peak ? bulkForm.peak_start || null : null,
+          peak_end: bulkForm.is_peak ? bulkForm.peak_end || null : null,
+        }
+
+        const { error } = existing
+          ? await supabase.from('nm_court_schedules').update(payload).eq('id', existing.id)
+          : await supabase.from('nm_court_schedules').insert(payload)
+
+        if (error) errorCount++
+        else successCount++
+      }
+    }
+
+    if (errorCount > 0) {
+      toast('warning', `${successCount} horarios guardados, ${errorCount} con error`)
+    } else {
+      toast('success', `${successCount} horarios actualizados de una vez`)
+    }
+
+    setBulkOpen(false)
+    loadSchedules()
+    setBulkSaving(false)
+  }
+
   // ── Schedule modal handlers ────────────────────────────────────────────────
 
   function openScheduleCell(court: Court, day: number) {
@@ -437,9 +531,15 @@ export default function ConfigurarPistasPage() {
       {/* ── Schedules Grid ─────────────────────────────────────────────────── */}
       {courts.length > 0 && (
         <section>
-          <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-4">
-            Horarios por pista y día
-          </h2>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wider">
+              Horarios por pista y día
+            </h2>
+            <Button variant="secondary" size="sm" onClick={() => setBulkOpen(true)}>
+              <Zap size={14} />
+              Precios Masivos
+            </Button>
+          </div>
           <div className="rounded-xl border border-slate-700/50 bg-slate-800/50 overflow-x-auto">
             <table className="w-full text-sm min-w-[640px]">
               <thead>
@@ -616,6 +716,111 @@ export default function ConfigurarPistasPage() {
                 <span className="text-xs text-slate-500 font-mono">{courtForm.color}</span>
               </div>
             </div>
+          </div>
+        </div>
+      </Modal>
+
+      {/* ── Bulk Pricing Modal ──────────────────────────────────────────────── */}
+      <Modal
+        open={bulkOpen}
+        onClose={() => setBulkOpen(false)}
+        title="Precios Masivos"
+        size="md"
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setBulkOpen(false)} disabled={bulkSaving}>Cancelar</Button>
+            <Button onClick={saveBulkPricing} loading={bulkSaving}>
+              <Zap size={14} /> Aplicar a {bulkForm.apply_to === 'all' ? 'todas las pistas' : `${bulkForm.selected_courts.length} pista(s)`}
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-5">
+          <p className="text-sm text-slate-400">
+            Configurá horario y precios una vez y aplicalo a todas las pistas y días que quieras.
+          </p>
+
+          {/* Horario */}
+          <div className="grid grid-cols-3 gap-3">
+            <Input id="bulk-open" type="time" label="Apertura" value={bulkForm.open_time} onChange={e => setBulkForm(f => ({ ...f, open_time: e.target.value }))} />
+            <Input id="bulk-close" type="time" label="Cierre" value={bulkForm.close_time} onChange={e => setBulkForm(f => ({ ...f, close_time: e.target.value }))} />
+            <Select id="bulk-duration" label="Duración slot" options={SLOT_DURATION_OPTIONS} value={bulkForm.slot_duration} onChange={e => setBulkForm(f => ({ ...f, slot_duration: e.target.value }))} />
+          </div>
+
+          {/* Precios */}
+          <div className="grid grid-cols-2 gap-3">
+            <Input id="bulk-price" type="number" label="Precio normal (€)" placeholder="24.00" min="0" step="0.5" value={bulkForm.price_per_slot} onChange={e => setBulkForm(f => ({ ...f, price_per_slot: e.target.value }))} />
+            <Input id="bulk-peak" type="number" label="Precio pico (€)" placeholder="30.00" min="0" step="0.5" value={bulkForm.peak_price} onChange={e => setBulkForm(f => ({ ...f, peak_price: e.target.value }))} />
+          </div>
+
+          {/* Horario pico */}
+          <div className="flex items-center gap-4">
+            <label className="flex items-center gap-2 text-sm text-slate-300 cursor-pointer">
+              <input type="checkbox" checked={bulkForm.is_peak} onChange={e => setBulkForm(f => ({ ...f, is_peak: e.target.checked }))} className="rounded border-slate-600 bg-slate-800 text-cyan-500 focus:ring-cyan-500" />
+              <Zap size={14} className="text-amber-400" /> Horario pico
+            </label>
+            {bulkForm.is_peak && (
+              <div className="flex items-center gap-2 text-sm">
+                <input type="time" value={bulkForm.peak_start} onChange={e => setBulkForm(f => ({ ...f, peak_start: e.target.value }))} className="bg-slate-800 border border-slate-600 rounded px-2 py-1 text-white text-sm w-24" />
+                <span className="text-slate-500">a</span>
+                <input type="time" value={bulkForm.peak_end} onChange={e => setBulkForm(f => ({ ...f, peak_end: e.target.value }))} className="bg-slate-800 border border-slate-600 rounded px-2 py-1 text-white text-sm w-24" />
+              </div>
+            )}
+          </div>
+
+          {/* Seleccionar días */}
+          <div>
+            <label className="block text-sm font-medium text-slate-300 mb-2">Días</label>
+            <div className="flex gap-2">
+              {DAYS.map(d => (
+                <button
+                  key={d}
+                  type="button"
+                  onClick={() => toggleBulkDay(d)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${bulkForm.selected_days.includes(d) ? 'bg-cyan-600 text-white' : 'bg-slate-700/50 text-slate-400 hover:text-white'}`}
+                >
+                  {DAY_NAMES[d]}
+                </button>
+              ))}
+              <button
+                type="button"
+                onClick={() => setBulkForm(f => ({ ...f, selected_days: f.selected_days.length === 7 ? [] : [1, 2, 3, 4, 5, 6, 0] }))}
+                className="px-2 py-1.5 rounded-lg text-[10px] font-medium bg-slate-700/30 text-slate-500 hover:text-white"
+              >
+                {bulkForm.selected_days.length === 7 ? 'Ninguno' : 'Todos'}
+              </button>
+            </div>
+          </div>
+
+          {/* Seleccionar pistas */}
+          <div>
+            <label className="block text-sm font-medium text-slate-300 mb-2">Pistas</label>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => setBulkForm(f => ({ ...f, apply_to: 'all', selected_courts: [] }))}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${bulkForm.apply_to === 'all' ? 'bg-cyan-600 text-white' : 'bg-slate-700/50 text-slate-400 hover:text-white'}`}
+              >
+                Todas
+              </button>
+              {courts.map(c => (
+                <button
+                  key={c.id}
+                  type="button"
+                  onClick={() => { setBulkForm(f => ({ ...f, apply_to: 'selected' })); toggleBulkCourt(c.id) }}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors flex items-center gap-1.5 ${bulkForm.apply_to === 'selected' && bulkForm.selected_courts.includes(c.id) ? 'bg-cyan-600 text-white' : 'bg-slate-700/50 text-slate-400 hover:text-white'}`}
+                >
+                  <span className="w-2 h-2 rounded-full" style={{ backgroundColor: c.color }} />
+                  {c.name}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Preview */}
+          <div className="bg-slate-700/20 rounded-lg p-3 text-xs text-slate-400">
+            Se actualizarán <span className="text-white font-medium">{(bulkForm.apply_to === 'all' ? courts.length : bulkForm.selected_courts.length) * bulkForm.selected_days.length}</span> horarios:
+            {' '}{bulkForm.apply_to === 'all' ? 'todas las pistas' : `${bulkForm.selected_courts.length} pista(s)`} × {bulkForm.selected_days.length} día(s)
           </div>
         </div>
       </Modal>
