@@ -4,8 +4,8 @@ import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useParams, useRouter } from 'next/navigation'
 import {
-  ArrowLeft, Trophy, Users, CalendarDays, Trash2, Save, Loader2,
-  Pencil, Layers, ListOrdered, Medal,
+  ArrowLeft, Trophy, Users, CalendarDays, Save, Loader2,
+  Pencil, Layers, ListOrdered, Medal, Download, Upload,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useRealtimeRefresh } from '@/hooks/use-realtime-refresh'
@@ -220,7 +220,21 @@ export default function LigaDetallePage() {
             {league.end_date && ` → ${formatDate(league.end_date)}`}
           </p>
         </div>
-        <Badge variant="cyan">{league.status}</Badge>
+        <div className="flex items-center gap-2">
+          <a
+            href={`/api/ligas/${league.id}/export`}
+            className="flex items-center gap-1 px-3 py-2 text-xs rounded-lg bg-slate-700 hover:bg-slate-600 text-white transition-colors"
+          >
+            <Download size={14} /> Exportar Excel
+          </a>
+          <Link
+            href={`/admin/ligas/importar?league_id=${league.id}`}
+            className="flex items-center gap-1 px-3 py-2 text-xs rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white transition-colors"
+          >
+            <Upload size={14} /> Actualizar desde Excel
+          </Link>
+          <Badge variant="cyan">{league.status}</Badge>
+        </div>
       </div>
 
       {/* KPIs */}

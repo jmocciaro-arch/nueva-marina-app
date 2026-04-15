@@ -177,6 +177,8 @@ export async function POST(request: Request) {
   const leagueName = (form.get('league_name') as string | null)?.trim() || 'Liga importada'
   const startDate = (form.get('start_date') as string | null) || new Date().toISOString().slice(0, 10)
   const dryRun = (form.get('dry_run') as string | null) === 'true'
+  const existingLeagueIdRaw = form.get('league_id') as string | null
+  const existingLeagueId = existingLeagueIdRaw ? Number(existingLeagueIdRaw) : null
 
   if (!file) return NextResponse.json({ error: 'Falta archivo xlsx' }, { status: 400 })
 
@@ -217,66 +219,104 @@ export async function POST(request: Request) {
     return NextResponse.json({ success: true, dry_run: true, preview })
   }
 
-  // ── Inserción real ───────────────────────────────────────────────────────
+  // ── Inserción / actualización ────────────────────────────────────────────
   const admin = createServiceRoleClient()
+  let leagueId: number
+  const stats = { league_id: 0, categories: 0, teams: 0, rounds: 0, matches: 0, byes: 0, updated: false }
 
-  // 1) Liga
-  const { data: league, error: leagueErr } = await admin
-    .from('nm_leagues')
-    .insert({
-      club_id: CLUB_ID,
-      sport_id: SPORT_ID,
-      name: leagueName,
-      format: 'round_robin',
-      season: String(new Date(startDate).getFullYear()),
-      start_date: startDate,
-      status: 'active',
-      has_playoffs: false,
-      sets_to_win: 2,
-      games_per_set: 6,
-      golden_point: true,
-      description: `Importada desde Excel (${file.name}) — duración promedio 1h30, zona Europe/Madrid.`,
-    })
-    .select('id')
-    .single()
-
-  if (leagueErr || !league) {
-    return NextResponse.json({ error: 'No se pudo crear la liga: ' + (leagueErr?.message ?? 'unknown') }, { status: 500 })
-  }
-
-  const leagueId = league.id
-  const stats = { league_id: leagueId, categories: 0, teams: 0, rounds: 0, matches: 0, byes: 0 }
-
-  // 2) Categorías → Teams → Rounds → Matches
-  for (const cat of categories) {
-    const { data: catRow, error: catErr } = await admin
-      .from('nm_league_categories')
+  if (existingLeagueId) {
+    // Re-import sobre liga existente: actualizamos metadatos, upsert en todo lo demás
+    const { data: lg, error: lgErr } = await admin
+      .from('nm_leagues')
+      .update({
+        name: leagueName,
+        start_date: startDate,
+        description: `Actualizada desde Excel (${file.name}).`,
+      })
+      .eq('id', existingLeagueId)
+      .select('id')
+      .single()
+    if (lgErr || !lg) {
+      return NextResponse.json({ error: 'Liga no encontrada: ' + (lgErr?.message ?? '?') }, { status: 404 })
+    }
+    leagueId = lg.id
+    stats.updated = true
+  } else {
+    // Nueva liga
+    const { data: league, error: leagueErr } = await admin
+      .from('nm_leagues')
       .insert({
-        league_id: leagueId,
-        name: cat.name,
-        gender: cat.gender,
-        level: cat.level || null,
-        max_teams: Math.max(cat.teams.length, 8),
-        num_groups: 1,
+        club_id: CLUB_ID,
+        sport_id: SPORT_ID,
+        name: leagueName,
+        format: 'round_robin',
+        season: String(new Date(startDate).getFullYear()),
+        start_date: startDate,
         status: 'active',
-        sort_order: cat.sort_order,
+        has_playoffs: false,
+        sets_to_win: 2,
+        games_per_set: 6,
+        golden_point: true,
+        description: `Importada desde Excel (${file.name}) — duración promedio 1h30, zona Europe/Madrid.`,
       })
       .select('id')
       .single()
+    if (leagueErr || !league) {
+      return NextResponse.json({ error: 'No se pudo crear la liga: ' + (leagueErr?.message ?? 'unknown') }, { status: 500 })
+    }
+    leagueId = league.id
+  }
+  stats.league_id = leagueId
 
-    if (catErr || !catRow) {
-      return NextResponse.json({ error: `Error creando categoría ${cat.name}: ${catErr?.message}`, stats }, { status: 500 })
+  // Pre-cargar categorías existentes si es update
+  const existingCats = existingLeagueId
+    ? (await admin.from('nm_league_categories').select('id,name,sort_order').eq('league_id', leagueId)).data ?? []
+    : []
+  const catByName = new Map<string, number>((existingCats as { id: number; name: string }[]).map(c => [c.name, c.id]))
+
+  for (const cat of categories) {
+    let catId: number
+    const existing = catByName.get(cat.name)
+    if (existing) {
+      catId = existing
+      await admin.from('nm_league_categories').update({
+        gender: cat.gender,
+        level: cat.level || null,
+        sort_order: cat.sort_order,
+      }).eq('id', catId)
+    } else {
+      const { data: catRow, error: catErr } = await admin
+        .from('nm_league_categories')
+        .insert({
+          league_id: leagueId,
+          name: cat.name,
+          gender: cat.gender,
+          level: cat.level || null,
+          max_teams: Math.max(cat.teams.length, 8),
+          num_groups: 1,
+          status: 'active',
+          sort_order: cat.sort_order,
+        })
+        .select('id')
+        .single()
+      if (catErr || !catRow) {
+        return NextResponse.json({ error: `Error creando categoría ${cat.name}: ${catErr?.message}`, stats }, { status: 500 })
+      }
+      catId = catRow.id
     }
     stats.categories++
 
-    // Teams
-    const teamIdByName = new Map<string, number>()
+    // Teams: upsert por nombre dentro de la categoría
+    const existingTeams = (await admin.from('nm_league_teams').select('id,team_name').eq('category_id', catId)).data ?? []
+    const teamIdByName = new Map<string, number>((existingTeams as { id: number; team_name: string | null }[]).map(t => [t.team_name ?? '', t.id]))
+
     for (const teamName of cat.teams) {
+      if (teamIdByName.has(teamName)) continue
       const players = splitPlayers(teamName)
       const { data: teamRow, error: teamErr } = await admin
         .from('nm_league_teams')
         .insert({
-          category_id: catRow.id,
+          category_id: catId,
           team_name: teamName,
           player1_name: players.p1,
           player2_name: players.p2,
@@ -292,33 +332,48 @@ export async function POST(request: Request) {
       stats.teams++
     }
 
-    // Rounds + Matches
+    // Rounds + Matches: upsert por round_number
+    const existingRounds = (await admin.from('nm_league_rounds').select('id,round_number').eq('category_id', catId)).data ?? []
+    const roundIdByNumber = new Map<number, number>((existingRounds as { id: number; round_number: number }[]).map(r => [r.round_number, r.id]))
+
     for (const rd of cat.rounds) {
-      const { data: roundRow, error: roundErr } = await admin
-        .from('nm_league_rounds')
-        .insert({
-          category_id: catRow.id,
-          round_number: rd.round_number,
-          status: 'pending',
-          is_playoff: false,
-        })
-        .select('id')
-        .single()
-      if (roundErr || !roundRow) {
-        return NextResponse.json({ error: `Error creando jornada ${rd.round_number} de ${cat.name}: ${roundErr?.message}`, stats }, { status: 500 })
+      let roundId: number
+      if (roundIdByNumber.has(rd.round_number)) {
+        roundId = roundIdByNumber.get(rd.round_number)!
+      } else {
+        const { data: roundRow, error: roundErr } = await admin
+          .from('nm_league_rounds')
+          .insert({
+            category_id: catId,
+            round_number: rd.round_number,
+            status: 'pending',
+            is_playoff: false,
+          })
+          .select('id')
+          .single()
+        if (roundErr || !roundRow) {
+          return NextResponse.json({ error: `Error creando jornada ${rd.round_number} de ${cat.name}: ${roundErr?.message}`, stats }, { status: 500 })
+        }
+        roundId = roundRow.id
       }
       stats.rounds++
+
+      // Partidos existentes en esa jornada (para evitar duplicados)
+      const existingMatches = (await admin.from('nm_league_matches').select('team1_id,team2_id').eq('round_id', roundId)).data ?? []
+      const existingPairs = new Set((existingMatches as { team1_id: number | null; team2_id: number | null }[]).map(m => `${m.team1_id}-${m.team2_id}`))
 
       for (const m of rd.matches) {
         if (m.bye) { stats.byes++; continue }
         const t1 = teamIdByName.get(m.team1)
         const t2 = teamIdByName.get(m.team2)
         if (!t1 || !t2) continue
+        // Evitar duplicar si ya existe el mismo pairing (cualquier orden)
+        if (existingPairs.has(`${t1}-${t2}`) || existingPairs.has(`${t2}-${t1}`)) continue
         const { error: matchErr } = await admin
           .from('nm_league_matches')
           .insert({
-            round_id: roundRow.id,
-            category_id: catRow.id,
+            round_id: roundId,
+            category_id: catId,
             team1_id: t1,
             team2_id: t2,
             status: 'scheduled',
@@ -326,6 +381,7 @@ export async function POST(request: Request) {
         if (matchErr) {
           return NextResponse.json({ error: `Error creando partido ${m.team1} vs ${m.team2}: ${matchErr.message}`, stats }, { status: 500 })
         }
+        existingPairs.add(`${t1}-${t2}`)
         stats.matches++
       }
     }

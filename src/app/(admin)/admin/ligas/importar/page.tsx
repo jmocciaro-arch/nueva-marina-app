@@ -1,9 +1,10 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
-import { FileSpreadsheet, Upload, Eye, CheckCircle2, AlertTriangle, ArrowLeft, Loader2, Trophy } from 'lucide-react'
+import { useRouter, useSearchParams } from 'next/navigation'
+import { FileSpreadsheet, Upload, Eye, CheckCircle2, AlertTriangle, ArrowLeft, Loader2, Trophy, Download } from 'lucide-react'
+import { createClient } from '@/lib/supabase/client'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -35,6 +36,8 @@ interface ImportStats {
 export default function ImportarLigaPage() {
   const { toast } = useToast()
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const existingId = searchParams.get('league_id')
 
   const [file, setFile] = useState<File | null>(null)
   const [leagueName, setLeagueName] = useState('LIGA EDENDENTAL 2026')
@@ -43,6 +46,19 @@ export default function ImportarLigaPage() {
   const [loading, setLoading] = useState(false)
   const [importing, setImporting] = useState(false)
   const [stats, setStats] = useState<ImportStats | null>(null)
+  const [existingLeague, setExistingLeague] = useState<{ id: number; name: string } | null>(null)
+
+  useEffect(() => {
+    if (!existingId) return
+    const supabase = createClient()
+    supabase.from('nm_leagues').select('id,name,start_date').eq('id', existingId).single().then(({ data }) => {
+      if (data) {
+        setExistingLeague({ id: data.id, name: data.name })
+        setLeagueName(data.name)
+        if (data.start_date) setStartDate(data.start_date)
+      }
+    })
+  }, [existingId])
 
   async function onPreview(e: React.FormEvent) {
     e.preventDefault()
@@ -54,6 +70,7 @@ export default function ImportarLigaPage() {
       fd.append('league_name', leagueName)
       fd.append('start_date', startDate)
       fd.append('dry_run', 'true')
+      if (existingLeague) fd.append('league_id', String(existingLeague.id))
       const res = await fetch('/api/import/liga', { method: 'POST', body: fd })
       const json = await res.json()
       if (!res.ok) throw new Error(json.error ?? 'Error')
@@ -76,6 +93,7 @@ export default function ImportarLigaPage() {
       fd.append('league_name', leagueName)
       fd.append('start_date', startDate)
       fd.append('dry_run', 'false')
+      if (existingLeague) fd.append('league_id', String(existingLeague.id))
       const res = await fetch('/api/import/liga', { method: 'POST', body: fd })
       const json = await res.json()
       if (!res.ok) throw new Error(json.error ?? 'Error')
@@ -104,6 +122,28 @@ export default function ImportarLigaPage() {
             Subí el Excel con el formato de ligas de Christian — categorías, equipos y jornadas se crean automáticamente.
           </p>
         </div>
+      </div>
+
+      {existingLeague && (
+        <div className="rounded-lg border border-cyan-500/30 bg-cyan-500/10 p-3 text-sm text-cyan-200 flex items-center gap-2">
+          <Upload size={16} />
+          <span>
+            Modo <strong>actualizar</strong>: los cambios se aplican sobre la liga existente
+            <code className="mx-1 text-cyan-100">{existingLeague.name}</code> (equipos, jornadas y partidos nuevos se agregan; los existentes no se tocan).
+          </span>
+        </div>
+      )}
+
+      <div className="flex items-center justify-between bg-slate-800/30 rounded-lg border border-slate-700/50 p-3">
+        <div className="text-xs text-slate-400">
+          ¿Todavía no tenés Excel? Descargá la plantilla vacía y completala en Excel/Numbers.
+        </div>
+        <a
+          href="/api/ligas/template"
+          className="flex items-center gap-1 px-3 py-1.5 text-xs rounded-lg bg-slate-700 hover:bg-slate-600 text-white transition-colors"
+        >
+          <Download size={12} /> Plantilla vacía
+        </a>
       </div>
 
       {/* Formulario */}
