@@ -29,6 +29,11 @@ import {
   UserPlus,
   Edit2,
   Activity,
+  KeyRound,
+  Send,
+  Eye,
+  EyeOff,
+  Dice5,
 } from 'lucide-react'
 import Link from 'next/link'
 
@@ -134,6 +139,17 @@ export default function GestionUsuariosPage() {
     emergency_contact: '', medical_notes: '', notes: '',
     dni: '', current_weight: '',
   })
+
+  // Toggle mostrar/ocultar password en modal crear
+  const [showCreatePassword, setShowCreatePassword] = useState(false)
+
+  // Modal cambiar contraseña
+  const [passwordModalOpen, setPasswordModalOpen] = useState(false)
+  const [passwordTargetUser, setPasswordTargetUser] = useState<NmUser | null>(null)
+  const [newPassword, setNewPassword] = useState('')
+  const [showNewPassword, setShowNewPassword] = useState(false)
+  const [savingPassword, setSavingPassword] = useState(false)
+  const [sendingReset, setSendingReset] = useState(false)
 
   // Modal editar usuario
   const [editOpen, setEditOpen] = useState(false)
@@ -296,6 +312,79 @@ export default function GestionUsuariosPage() {
       loadUsers()
     }
     setEditing(false)
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // Gestión de contraseñas
+  // ─────────────────────────────────────────────────────────────
+  async function handleSendResetEmail() {
+    if (!detailUser) return
+    if (!confirm(`¿Enviar email de restablecimiento de contraseña a ${detailUser.email}?`)) return
+    setSendingReset(true)
+    const res = await fetch('/api/users/password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'reset_email', user_id: detailUser.id }),
+    })
+    const data = await res.json()
+    if (!res.ok) {
+      toast('error', data.error || 'Error enviando email')
+    } else {
+      toast('success', data.message || 'Email enviado')
+    }
+    setSendingReset(false)
+  }
+
+  function openChangePassword(user: NmUser) {
+    setPasswordTargetUser(user)
+    setNewPassword('')
+    setShowNewPassword(false)
+    setDetailUser(null)
+    setPasswordModalOpen(true)
+  }
+
+  function generateSecurePassword() {
+    // Genera password de 12 chars con mayúsculas, minúsculas, números y símbolos
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789!@#$%'
+    let pwd = ''
+    const cryptoObj = typeof window !== 'undefined' ? window.crypto : null
+    if (cryptoObj) {
+      const arr = new Uint32Array(12)
+      cryptoObj.getRandomValues(arr)
+      for (let i = 0; i < 12; i++) pwd += chars[arr[i] % chars.length]
+    } else {
+      for (let i = 0; i < 12; i++) pwd += chars[Math.floor(Math.random() * chars.length)]
+    }
+    setNewPassword(pwd)
+    setShowNewPassword(true)
+  }
+
+  async function handleChangePassword() {
+    if (!passwordTargetUser) return
+    if (!newPassword || newPassword.length < 6) {
+      toast('error', 'La contraseña debe tener al menos 6 caracteres')
+      return
+    }
+    setSavingPassword(true)
+    const res = await fetch('/api/users/password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'set_password',
+        user_id: passwordTargetUser.id,
+        new_password: newPassword,
+      }),
+    })
+    const data = await res.json()
+    if (!res.ok) {
+      toast('error', data.error || 'Error cambiando contraseña')
+    } else {
+      toast('success', data.message || 'Contraseña actualizada')
+      setPasswordModalOpen(false)
+      setNewPassword('')
+      setShowNewPassword(false)
+    }
+    setSavingPassword(false)
   }
 
   // ─────────────────────────────────────────────────────────────
@@ -513,6 +602,34 @@ export default function GestionUsuariosPage() {
               ID: {detailUser.id}{detailUser.virtuagym_id ? ` | VG: ${detailUser.virtuagym_id}` : ''}
             </p>
 
+            {/* Gestión de contraseña */}
+            <div className="bg-amber-500/5 border border-amber-500/20 rounded-lg p-3 space-y-2">
+              <p className="text-xs font-medium text-amber-400 uppercase flex items-center gap-1.5">
+                <KeyRound size={12} /> Contraseña
+              </p>
+              <p className="text-xs text-slate-500">
+                Las contraseñas se guardan hasheadas — no es posible verlas.
+                Podés enviar un reset por email o asignar una nueva manualmente.
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={handleSendResetEmail}
+                  loading={sendingReset}
+                >
+                  <Send size={13} /> Resetear (email)
+                </Button>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => detailUser && openChangePassword(detailUser)}
+                >
+                  <KeyRound size={13} /> Cambiar manualmente
+                </Button>
+              </div>
+            </div>
+
             {/* Explicación de roles */}
             <div className="bg-slate-700/20 rounded-lg p-3 text-xs text-slate-500 space-y-1">
               <p className="font-medium text-slate-400">¿Qué puede hacer cada rol?</p>
@@ -547,7 +664,44 @@ export default function GestionUsuariosPage() {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <FormField label="Nombre completo *" value={form.full_name} onChange={v => setForm(f => ({ ...f, full_name: v }))} placeholder="Juan Pérez" />
               <FormField label="Email *" value={form.email} onChange={v => setForm(f => ({ ...f, email: v }))} placeholder="juan@email.com" type="email" />
-              <FormField label="Contraseña *" value={form.password} onChange={v => setForm(f => ({ ...f, password: v }))} placeholder="Mínimo 6 caracteres" type="password" />
+              <div>
+                <label className="block text-xs text-slate-400 mb-1">Contraseña *</label>
+                <div className="relative">
+                  <input
+                    type={showCreatePassword ? 'text' : 'password'}
+                    value={form.password}
+                    onChange={e => setForm(f => ({ ...f, password: e.target.value }))}
+                    placeholder="Mínimo 6 caracteres"
+                    className="w-full bg-slate-800 border border-slate-600 rounded-lg pl-3 pr-20 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-cyan-500/40 font-mono"
+                  />
+                  <div className="absolute right-1 top-1/2 -translate-y-1/2 flex items-center gap-0.5">
+                    <button
+                      type="button"
+                      title="Generar segura"
+                      onClick={() => {
+                        const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789!@#$%'
+                        let pwd = ''
+                        const arr = new Uint32Array(12)
+                        window.crypto.getRandomValues(arr)
+                        for (let i = 0; i < 12; i++) pwd += chars[arr[i] % chars.length]
+                        setForm(f => ({ ...f, password: pwd }))
+                        setShowCreatePassword(true)
+                      }}
+                      className="p-1.5 text-cyan-400 hover:bg-cyan-500/10 rounded"
+                    >
+                      <Dice5 size={14} />
+                    </button>
+                    <button
+                      type="button"
+                      title={showCreatePassword ? 'Ocultar' : 'Mostrar'}
+                      onClick={() => setShowCreatePassword(v => !v)}
+                      className="p-1.5 text-slate-400 hover:bg-slate-600/30 rounded"
+                    >
+                      {showCreatePassword ? <EyeOff size={14} /> : <Eye size={14} />}
+                    </button>
+                  </div>
+                </div>
+              </div>
               <div>
                 <label className="block text-xs text-slate-400 mb-1">Rol *</label>
                 <select
@@ -630,6 +784,81 @@ export default function GestionUsuariosPage() {
           </div>
           <FormField label="Notas internas" value={editForm.notes} onChange={v => setEditForm(f => ({ ...f, notes: v }))} />
         </form>
+      </Modal>
+
+      {/* ─── Modal: Cambiar Contraseña ─── */}
+      <Modal
+        open={passwordModalOpen}
+        onClose={() => setPasswordModalOpen(false)}
+        title="Cambiar contraseña"
+        size="sm"
+        footer={
+          <>
+            <Button variant="secondary" size="sm" onClick={() => setPasswordModalOpen(false)}>
+              Cancelar
+            </Button>
+            <Button variant="primary" size="sm" onClick={handleChangePassword} loading={savingPassword}>
+              <KeyRound size={14} /> Guardar contraseña
+            </Button>
+          </>
+        }
+      >
+        {passwordTargetUser && (
+          <div className="space-y-4">
+            <div className="bg-slate-700/30 rounded-lg p-3 flex items-center gap-3">
+              <div className="h-10 w-10 rounded-full bg-slate-700 flex items-center justify-center text-sm font-bold text-cyan-400 shrink-0">
+                {initials(passwordTargetUser)}
+              </div>
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-white truncate">
+                  {passwordTargetUser.full_name?.trim() || '(Sin nombre)'}
+                </p>
+                <p className="text-xs text-slate-400 truncate">{passwordTargetUser.email}</p>
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs text-slate-400 mb-1">Nueva contraseña *</label>
+              <div className="relative">
+                <input
+                  type={showNewPassword ? 'text' : 'password'}
+                  value={newPassword}
+                  onChange={e => setNewPassword(e.target.value)}
+                  placeholder="Mínimo 6 caracteres"
+                  autoFocus
+                  className="w-full bg-slate-800 border border-slate-600 rounded-lg pl-3 pr-20 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-cyan-500/40 font-mono"
+                />
+                <div className="absolute right-1 top-1/2 -translate-y-1/2 flex items-center gap-0.5">
+                  <button
+                    type="button"
+                    title="Generar segura"
+                    onClick={generateSecurePassword}
+                    className="p-1.5 text-cyan-400 hover:bg-cyan-500/10 rounded"
+                  >
+                    <Dice5 size={14} />
+                  </button>
+                  <button
+                    type="button"
+                    title={showNewPassword ? 'Ocultar' : 'Mostrar'}
+                    onClick={() => setShowNewPassword(v => !v)}
+                    className="p-1.5 text-slate-400 hover:bg-slate-600/30 rounded"
+                  >
+                    {showNewPassword ? <EyeOff size={14} /> : <Eye size={14} />}
+                  </button>
+                </div>
+              </div>
+              <p className="text-[11px] text-slate-500 mt-1.5">
+                Tip: usá el dado 🎲 para generar una segura de 12 caracteres.
+                Copiala antes de cerrar — después no se puede recuperar.
+              </p>
+            </div>
+
+            <div className="bg-amber-500/5 border border-amber-500/20 rounded-lg p-3 text-xs text-amber-300/80">
+              ⚠️ El usuario va a poder loguearse con esta contraseña inmediatamente.
+              Las sesiones activas del usuario NO se cierran automáticamente.
+            </div>
+          </div>
+        )}
       </Modal>
     </div>
   )
