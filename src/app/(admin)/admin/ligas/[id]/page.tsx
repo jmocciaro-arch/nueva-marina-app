@@ -1,0 +1,485 @@
+'use client'
+
+import { useCallback, useEffect, useState } from 'react'
+import Link from 'next/link'
+import { useParams, useRouter } from 'next/navigation'
+import {
+  ArrowLeft, Trophy, Users, CalendarDays, Trash2, Save, Loader2,
+  Pencil, Layers, ListOrdered, Medal,
+} from 'lucide-react'
+import { createClient } from '@/lib/supabase/client'
+import { Card } from '@/components/ui/card'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Modal } from '@/components/ui/modal'
+import { useToast } from '@/components/ui/toast'
+import { formatDate } from '@/lib/utils'
+
+interface League {
+  id: number
+  name: string
+  season: string | null
+  format: string
+  start_date: string | null
+  end_date: string | null
+  status: string
+  description: string | null
+  sets_to_win: number
+  games_per_set: number
+  golden_point: boolean
+}
+interface Category {
+  id: number
+  name: string
+  gender: string
+  level: string | null
+  status: string
+  sort_order: number
+}
+interface Team {
+  id: number
+  category_id: number
+  team_name: string | null
+  player1_name: string
+  player2_name: string
+  player3_name: string | null
+}
+interface Round {
+  id: number
+  category_id: number
+  round_number: number
+  scheduled_date: string | null
+  status: string
+}
+interface Match {
+  id: number
+  round_id: number
+  category_id: number
+  team1_id: number | null
+  team2_id: number | null
+  team1_set1: number | null; team2_set1: number | null
+  team1_set2: number | null; team2_set2: number | null
+  team1_set3: number | null; team2_set3: number | null
+  sets_team1: number; sets_team2: number
+  winner_team_id: number | null
+  status: string
+  played_date: string | null
+}
+
+export default function LigaDetallePage() {
+  const params = useParams<{ id: string }>()
+  const router = useRouter()
+  const { toast } = useToast()
+  const leagueId = Number(params.id)
+
+  const [league, setLeague] = useState<League | null>(null)
+  const [categories, setCategories] = useState<Category[]>([])
+  const [teams, setTeams] = useState<Team[]>([])
+  const [rounds, setRounds] = useState<Round[]>([])
+  const [matches, setMatches] = useState<Match[]>([])
+  const [loading, setLoading] = useState(true)
+  const [activeCategoryId, setActiveCategoryId] = useState<number | null>(null)
+
+  // Match edit modal state
+  const [editingMatch, setEditingMatch] = useState<Match | null>(null)
+  const [matchForm, setMatchForm] = useState({
+    t1s1: '', t2s1: '', t1s2: '', t2s2: '', t1s3: '', t2s3: '',
+    playedDate: '',
+  })
+  const [savingMatch, setSavingMatch] = useState(false)
+
+  // Round date modal
+  const [editingRound, setEditingRound] = useState<Round | null>(null)
+  const [roundDate, setRoundDate] = useState('')
+  const [savingRound, setSavingRound] = useState(false)
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    const supabase = createClient()
+    const [lRes, cRes, tRes, rRes, mRes] = await Promise.all([
+      supabase.from('nm_leagues').select('*').eq('id', leagueId).single(),
+      supabase.from('nm_league_categories').select('*').eq('league_id', leagueId).order('sort_order'),
+      supabase.from('nm_league_teams').select('*, category_id').order('id'),
+      supabase.from('nm_league_rounds').select('*').order('round_number'),
+      supabase.from('nm_league_matches').select('*').order('id'),
+    ])
+    if (lRes.error || !lRes.data) {
+      toast('error', 'Liga no encontrada')
+      router.push('/admin/ligas')
+      return
+    }
+    setLeague(lRes.data as League)
+    const cats = (cRes.data ?? []) as Category[]
+    setCategories(cats)
+    if (cats.length > 0 && activeCategoryId === null) setActiveCategoryId(cats[0].id)
+
+    const catIds = new Set(cats.map(c => c.id))
+    setTeams((tRes.data ?? []).filter((t: Team) => catIds.has(t.category_id)) as Team[])
+    setRounds((rRes.data ?? []).filter((r: Round) => catIds.has(r.category_id)) as Round[])
+    setMatches((mRes.data ?? []).filter((m: Match) => catIds.has(m.category_id)) as Match[])
+    setLoading(false)
+  }, [leagueId, toast, router, activeCategoryId])
+
+  useEffect(() => { load() }, [load])
+
+  if (loading) return <div className="p-8 text-slate-400">Cargando liga…</div>
+  if (!league) return null
+
+  const cat = categories.find(c => c.id === activeCategoryId) ?? null
+  const catTeams = cat ? teams.filter(t => t.category_id === cat.id) : []
+  const catRounds = cat ? rounds.filter(r => r.category_id === cat.id).sort((a, b) => a.round_number - b.round_number) : []
+  const teamById = new Map(catTeams.map(t => [t.id, t]))
+
+  function openEditMatch(m: Match) {
+    setEditingMatch(m)
+    setMatchForm({
+      t1s1: m.team1_set1?.toString() ?? '', t2s1: m.team2_set1?.toString() ?? '',
+      t1s2: m.team1_set2?.toString() ?? '', t2s2: m.team2_set2?.toString() ?? '',
+      t1s3: m.team1_set3?.toString() ?? '', t2s3: m.team2_set3?.toString() ?? '',
+      playedDate: m.played_date ?? new Date().toISOString().slice(0, 10),
+    })
+  }
+
+  async function saveMatch() {
+    if (!editingMatch) return
+    setSavingMatch(true)
+    const supabase = createClient()
+    const n = (v: string) => v === '' ? null : Number(v)
+    const t1s1 = n(matchForm.t1s1), t2s1 = n(matchForm.t2s1)
+    const t1s2 = n(matchForm.t1s2), t2s2 = n(matchForm.t2s2)
+    const t1s3 = n(matchForm.t1s3), t2s3 = n(matchForm.t2s3)
+    let sets1 = 0, sets2 = 0, games1 = 0, games2 = 0
+    const pairs: [number|null, number|null][] = [[t1s1, t2s1], [t1s2, t2s2], [t1s3, t2s3]]
+    for (const [a, b] of pairs) {
+      if (a == null || b == null) continue
+      games1 += a; games2 += b
+      if (a > b) sets1++; else if (b > a) sets2++
+    }
+    const winner = sets1 > sets2 ? editingMatch.team1_id : sets2 > sets1 ? editingMatch.team2_id : null
+    const status = sets1 > 0 || sets2 > 0 ? 'completed' : 'scheduled'
+    const { error } = await supabase.from('nm_league_matches').update({
+      team1_set1: t1s1, team2_set1: t2s1,
+      team1_set2: t1s2, team2_set2: t2s2,
+      team1_set3: t1s3, team2_set3: t2s3,
+      sets_team1: sets1, sets_team2: sets2,
+      games_team1: games1, games_team2: games2,
+      winner_team_id: winner,
+      status,
+      played_date: matchForm.playedDate || null,
+    }).eq('id', editingMatch.id)
+    if (error) { toast('error', error.message); setSavingMatch(false); return }
+    toast('success', 'Resultado guardado')
+    setEditingMatch(null); setSavingMatch(false)
+    load()
+  }
+
+  function openEditRound(r: Round) {
+    setEditingRound(r)
+    setRoundDate(r.scheduled_date ?? '')
+  }
+
+  async function saveRoundDate() {
+    if (!editingRound) return
+    setSavingRound(true)
+    const supabase = createClient()
+    const { error } = await supabase.from('nm_league_rounds').update({
+      scheduled_date: roundDate || null,
+    }).eq('id', editingRound.id)
+    if (error) { toast('error', error.message); setSavingRound(false); return }
+    toast('success', 'Fecha actualizada')
+    setEditingRound(null); setSavingRound(false)
+    load()
+  }
+
+  // ── Standings ─────────────────────────────────────────────────────────────
+  const standings = cat ? computeStandings(catTeams, matches.filter(m => m.category_id === cat.id)) : []
+
+  const genderLabel: Record<string, string> = { male: 'Masculino', female: 'Femenino', mixed: 'Mixto' }
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center gap-3">
+        <Link href="/admin/ligas" className="text-slate-400 hover:text-white">
+          <ArrowLeft size={20} />
+        </Link>
+        <div className="flex-1 min-w-0">
+          <h1 className="text-2xl font-bold text-white flex items-center gap-2 flex-wrap">
+            <Trophy className="text-cyan-400" /> {league.name}
+          </h1>
+          <p className="text-sm text-slate-400 mt-1">
+            {league.season && `Temporada ${league.season} · `}
+            {league.start_date && formatDate(league.start_date)}
+            {league.end_date && ` → ${formatDate(league.end_date)}`}
+          </p>
+        </div>
+        <Badge variant="cyan">{league.status}</Badge>
+      </div>
+
+      {/* KPIs */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <Card><Kpi label="Categorías" value={categories.length} icon={<Layers size={18} />} /></Card>
+        <Card><Kpi label="Equipos" value={teams.length} icon={<Users size={18} />} /></Card>
+        <Card><Kpi label="Jornadas" value={rounds.length} icon={<ListOrdered size={18} />} /></Card>
+        <Card><Kpi label="Partidos" value={matches.length} icon={<CalendarDays size={18} />} /></Card>
+      </div>
+
+      {/* Tabs de categorías */}
+      {categories.length === 0 ? (
+        <Card>
+          <p className="text-slate-400 text-sm">Esta liga no tiene categorías. Importá un Excel o creá una categoría desde el backend.</p>
+        </Card>
+      ) : (
+        <>
+          <div className="flex gap-1 overflow-x-auto border-b border-slate-700/50">
+            {categories.map(c => (
+              <button
+                key={c.id}
+                onClick={() => setActiveCategoryId(c.id)}
+                className={[
+                  'px-3 py-2 text-sm whitespace-nowrap transition-colors',
+                  activeCategoryId === c.id
+                    ? 'text-cyan-400 border-b-2 border-cyan-400'
+                    : 'text-slate-400 hover:text-slate-200',
+                ].join(' ')}
+              >
+                {c.name}
+                <span className="ml-1.5 text-xs text-slate-500">
+                  ({teams.filter(t => t.category_id === c.id).length})
+                </span>
+              </button>
+            ))}
+          </div>
+
+          {cat && (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              {/* Standings */}
+              <Card>
+                <h2 className="text-sm font-semibold text-white mb-3 flex items-center gap-2">
+                  <Medal size={16} className="text-cyan-400" /> Clasificación — {cat.name}
+                </h2>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="text-slate-500 border-b border-slate-700/50">
+                        <th className="text-left py-1.5 pl-2">#</th>
+                        <th className="text-left py-1.5">Equipo</th>
+                        <th className="text-center py-1.5">PJ</th>
+                        <th className="text-center py-1.5">PG</th>
+                        <th className="text-center py-1.5">PP</th>
+                        <th className="text-center py-1.5">Sets</th>
+                        <th className="text-center py-1.5 pr-2">Pts</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {standings.length === 0 && (
+                        <tr><td colSpan={7} className="text-center text-slate-500 py-4">Sin partidos jugados</td></tr>
+                      )}
+                      {standings.map((s, i) => (
+                        <tr key={s.team.id} className="border-b border-slate-800">
+                          <td className="py-1.5 pl-2 text-slate-400">{i + 1}</td>
+                          <td className="py-1.5 text-white">{s.team.team_name ?? '(sin nombre)'}</td>
+                          <td className="py-1.5 text-center text-slate-300">{s.played}</td>
+                          <td className="py-1.5 text-center text-green-400">{s.wins}</td>
+                          <td className="py-1.5 text-center text-red-400">{s.losses}</td>
+                          <td className="py-1.5 text-center text-slate-400">{s.setsFor}-{s.setsAgainst}</td>
+                          <td className="py-1.5 pr-2 text-center font-bold text-cyan-400">{s.points}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </Card>
+
+              {/* Equipos */}
+              <Card>
+                <h2 className="text-sm font-semibold text-white mb-3 flex items-center gap-2">
+                  <Users size={16} className="text-cyan-400" /> Equipos
+                  <Badge variant="cyan">{catTeams.length}</Badge>
+                  <span className="text-xs text-slate-500 ml-auto">{genderLabel[cat.gender] ?? cat.gender}</span>
+                </h2>
+                <div className="space-y-1.5 max-h-96 overflow-y-auto pr-1">
+                  {catTeams.map(t => (
+                    <div key={t.id} className="rounded-lg bg-slate-800/50 p-2 text-xs">
+                      <div className="font-medium text-white">{t.team_name ?? '(sin nombre)'}</div>
+                      <div className="text-slate-400 mt-0.5">
+                        {[t.player1_name, t.player2_name, t.player3_name].filter(Boolean).join(' · ')}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </Card>
+            </div>
+          )}
+
+          {/* Jornadas */}
+          {cat && catRounds.map(r => {
+            const matchesOfRound = matches.filter(m => m.round_id === r.id)
+            return (
+              <Card key={r.id}>
+                <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+                  <div className="flex items-center gap-3">
+                    <h3 className="text-sm font-semibold text-white">Jornada {r.round_number}</h3>
+                    {r.scheduled_date ? (
+                      <Badge variant="info">{formatDate(r.scheduled_date)}</Badge>
+                    ) : (
+                      <Badge variant="warning">Sin fecha</Badge>
+                    )}
+                  </div>
+                  <Button variant="ghost" onClick={() => openEditRound(r)} className="flex items-center gap-1 text-xs">
+                    <Pencil size={12} /> Fecha
+                  </Button>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                  {matchesOfRound.map(m => {
+                    const t1 = teamById.get(m.team1_id ?? -1)
+                    const t2 = teamById.get(m.team2_id ?? -1)
+                    const played = m.status === 'completed'
+                    return (
+                      <button
+                        key={m.id}
+                        onClick={() => openEditMatch(m)}
+                        className="text-left rounded-lg border border-slate-700/50 bg-slate-800/30 hover:bg-slate-800/70 hover:border-cyan-500/30 p-3 transition-colors"
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="min-w-0 flex-1">
+                            <div className="text-xs text-slate-300 truncate">{t1?.team_name ?? '?'}</div>
+                            <div className="text-xs text-slate-500 my-0.5">vs</div>
+                            <div className="text-xs text-slate-300 truncate">{t2?.team_name ?? '?'}</div>
+                          </div>
+                          {played ? (
+                            <div className="text-right text-xs font-mono">
+                              <div className={m.winner_team_id === m.team1_id ? 'text-green-400 font-bold' : 'text-slate-400'}>
+                                {m.team1_set1 ?? '-'} / {m.team1_set2 ?? '-'}{m.team1_set3 != null ? ` / ${m.team1_set3}` : ''}
+                              </div>
+                              <div className={m.winner_team_id === m.team2_id ? 'text-green-400 font-bold' : 'text-slate-400'}>
+                                {m.team2_set1 ?? '-'} / {m.team2_set2 ?? '-'}{m.team2_set3 != null ? ` / ${m.team2_set3}` : ''}
+                              </div>
+                            </div>
+                          ) : (
+                            <Badge variant="default">Pendiente</Badge>
+                          )}
+                        </div>
+                      </button>
+                    )
+                  })}
+                </div>
+              </Card>
+            )
+          })}
+        </>
+      )}
+
+      {/* Modal resultado */}
+      {editingMatch && (() => {
+        const t1 = teams.find(t => t.id === editingMatch.team1_id)
+        const t2 = teams.find(t => t.id === editingMatch.team2_id)
+        return (
+          <Modal open={!!editingMatch} onClose={() => setEditingMatch(null)} title="Cargar resultado">
+            <div className="space-y-4">
+              <div className="text-sm">
+                <div className="text-white">{t1?.team_name ?? '?'}</div>
+                <div className="text-slate-500 text-xs">vs</div>
+                <div className="text-white">{t2?.team_name ?? '?'}</div>
+              </div>
+              <div>
+                <label className="block text-xs text-slate-400 mb-1">Fecha jugada</label>
+                <Input type="date" value={matchForm.playedDate} onChange={e => setMatchForm(f => ({ ...f, playedDate: e.target.value }))} />
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                {[1, 2, 3].map(n => (
+                  <div key={n}>
+                    <p className="text-xs text-slate-400 mb-1">Set {n}</p>
+                    <div className="flex gap-1 items-center">
+                      <Input
+                        type="number" min="0" max="9"
+                        value={matchForm[`t1s${n}` as keyof typeof matchForm]}
+                        onChange={e => setMatchForm(f => ({ ...f, [`t1s${n}`]: e.target.value }))}
+                      />
+                      <span className="text-slate-500 text-xs">-</span>
+                      <Input
+                        type="number" min="0" max="9"
+                        value={matchForm[`t2s${n}` as keyof typeof matchForm]}
+                        onChange={e => setMatchForm(f => ({ ...f, [`t2s${n}`]: e.target.value }))}
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div className="flex gap-2 justify-end pt-2">
+                <Button variant="ghost" onClick={() => setEditingMatch(null)} disabled={savingMatch}>Cancelar</Button>
+                <Button onClick={saveMatch} disabled={savingMatch} className="flex items-center gap-1">
+                  {savingMatch ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+                  Guardar
+                </Button>
+              </div>
+            </div>
+          </Modal>
+        )
+      })()}
+
+      {/* Modal fecha jornada */}
+      {editingRound && (
+        <Modal open={!!editingRound} onClose={() => setEditingRound(null)} title={`Fecha — Jornada ${editingRound.round_number}`}>
+          <div className="space-y-4">
+            <div>
+              <label className="block text-xs text-slate-400 mb-1">Fecha programada</label>
+              <Input type="date" value={roundDate} onChange={e => setRoundDate(e.target.value)} />
+              <p className="text-xs text-slate-500 mt-1">Dejá vacío para quitar la fecha.</p>
+            </div>
+            <div className="flex gap-2 justify-end">
+              <Button variant="ghost" onClick={() => setEditingRound(null)} disabled={savingRound}>Cancelar</Button>
+              <Button onClick={saveRoundDate} disabled={savingRound} className="flex items-center gap-1">
+                {savingRound ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+                Guardar
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      )}
+    </div>
+  )
+}
+
+function Kpi({ label, value, icon }: { label: string; value: number; icon: React.ReactNode }) {
+  return (
+    <div className="flex items-center gap-3">
+      <div className="w-10 h-10 rounded-lg bg-cyan-500/10 text-cyan-400 flex items-center justify-center">{icon}</div>
+      <div>
+        <div className="text-xs text-slate-400">{label}</div>
+        <div className="text-xl font-bold text-white">{value}</div>
+      </div>
+    </div>
+  )
+}
+
+function computeStandings(teams: Team[], matches: Match[]) {
+  const map = new Map<number, {
+    team: Team; played: number; wins: number; losses: number;
+    setsFor: number; setsAgainst: number; points: number
+  }>()
+  for (const t of teams) map.set(t.id, { team: t, played: 0, wins: 0, losses: 0, setsFor: 0, setsAgainst: 0, points: 0 })
+  for (const m of matches) {
+    if (m.status !== 'completed' || m.team1_id == null || m.team2_id == null) continue
+    const a = map.get(m.team1_id), b = map.get(m.team2_id)
+    if (!a || !b) continue
+    a.played++; b.played++
+    a.setsFor += m.sets_team1; a.setsAgainst += m.sets_team2
+    b.setsFor += m.sets_team2; b.setsAgainst += m.sets_team1
+    if (m.winner_team_id === m.team1_id) {
+      a.wins++; b.losses++
+      a.points += m.sets_team2 === 0 ? 3 : 2
+      b.points += m.sets_team2 === 1 ? 1 : 0
+    } else if (m.winner_team_id === m.team2_id) {
+      b.wins++; a.losses++
+      b.points += m.sets_team1 === 0 ? 3 : 2
+      a.points += m.sets_team1 === 1 ? 1 : 0
+    }
+  }
+  return Array.from(map.values()).sort((x, y) => {
+    if (y.points !== x.points) return y.points - x.points
+    const dx = x.setsFor - x.setsAgainst, dy = y.setsFor - y.setsAgainst
+    if (dy !== dx) return dy - dx
+    return y.wins - x.wins
+  })
+}

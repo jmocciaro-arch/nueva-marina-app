@@ -675,24 +675,24 @@ function LeagueCard({ league, onEdit, onDelete }: LeagueCardProps) {
     league.format === 'round_robin' ? 'Round Robin' : 'Liga'
 
   return (
-    <div
-      className="group relative rounded-xl border border-slate-700/50 bg-slate-800/50 p-5 hover:border-slate-600 hover:bg-slate-800/80 transition-all cursor-pointer"
-      onClick={onEdit}
+    <Link
+      href={`/admin/ligas/${league.id}`}
+      className="group relative rounded-xl border border-slate-700/50 bg-slate-800/50 p-5 hover:border-cyan-500/50 hover:bg-slate-800/80 transition-all cursor-pointer block"
     >
       {/* Acciones */}
       <div
-        className="absolute top-3 right-3 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity"
-        onClick={e => e.stopPropagation()}
+        className="absolute top-3 right-3 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-10"
+        onClick={e => { e.preventDefault(); e.stopPropagation() }}
       >
         <button
-          onClick={onEdit}
+          onClick={e => { e.preventDefault(); e.stopPropagation(); onEdit() }}
           className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-700 transition-colors"
           title="Editar"
         >
           <Pencil size={14} />
         </button>
         <button
-          onClick={onDelete}
+          onClick={e => { e.preventDefault(); e.stopPropagation(); onDelete() }}
           className="p-1.5 rounded-lg text-slate-400 hover:text-red-400 hover:bg-red-500/10 transition-colors"
           title="Eliminar"
         >
@@ -771,6 +771,6 @@ function LeagueCard({ league, onEdit, onDelete }: LeagueCardProps) {
           {league.golden_point && ' · GP'}
         </span>
       </div>
-    </div>
+    </Link>
   )
 }
