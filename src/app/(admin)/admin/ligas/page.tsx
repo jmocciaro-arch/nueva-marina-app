@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
+import Link from 'next/link'
 import {
   Trophy,
   Plus,
@@ -11,6 +12,7 @@ import {
   Award,
   Users,
   ChevronRight,
+  FileSpreadsheet,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { KpiCard } from '@/components/ui/kpi-card'
@@ -492,10 +494,18 @@ export default function GestionLigasPage() {
             Administrá ligas, formatos y clasificaciones
           </p>
         </div>
-        <Button onClick={openCreate} className="flex items-center gap-2">
-          <Plus size={16} />
-          Nueva Liga
-        </Button>
+        <div className="flex items-center gap-2">
+          <Link href="/admin/ligas/importar">
+            <Button variant="outline" className="flex items-center gap-2">
+              <FileSpreadsheet size={16} />
+              Importar Excel
+            </Button>
+          </Link>
+          <Button onClick={openCreate} className="flex items-center gap-2">
+            <Plus size={16} />
+            Nueva Liga
+          </Button>
+        </div>
       </div>
 
       {/* KPIs */}
