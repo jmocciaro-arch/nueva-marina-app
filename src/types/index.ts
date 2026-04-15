@@ -72,6 +72,17 @@ export interface User {
   iban?: string
   virtuagym_id?: string
   notes?: string
+  // Migración 005 — perfil atleta
+  dni?: string
+  current_weight?: number
+  injuries?: Injury[]
+}
+
+export interface Injury {
+  tipo: string
+  fecha?: string
+  descripcion?: string
+  activa?: boolean
 }
 
 export interface ClubMember {

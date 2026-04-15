@@ -28,6 +28,7 @@ import {
   StickyNote,
   UserPlus,
   Edit2,
+  Activity,
 } from 'lucide-react'
 import Link from 'next/link'
 
@@ -53,6 +54,8 @@ interface NmUser {
   iban: string | null
   virtuagym_id: string | null
   notes: string | null
+  dni: string | null
+  current_weight: number | null
 }
 
 interface ClubMember {
@@ -129,6 +132,7 @@ export default function GestionUsuariosPage() {
     email: '', password: '', full_name: '', phone: '', role: 'player',
     document_type: '', document_number: '', address: '', postal_code: '',
     emergency_contact: '', medical_notes: '', notes: '',
+    dni: '', current_weight: '',
   })
 
   // Modal editar usuario
@@ -138,6 +142,7 @@ export default function GestionUsuariosPage() {
     full_name: '', phone: '', role: 'player',
     document_type: '', document_number: '', address: '', postal_code: '',
     emergency_contact: '', medical_notes: '', notes: '',
+    dni: '', current_weight: '',
   })
   const [editUserId, setEditUserId] = useState('')
 
@@ -148,7 +153,7 @@ export default function GestionUsuariosPage() {
     setLoading(true)
     const supabase = createClient()
     const [usersRes, membersRes] = await Promise.all([
-      supabase.from('nm_users').select('id, full_name, email, phone, country, city, is_active, last_login_at, created_at, emergency_contact, medical_notes, document_type, document_number, address, postal_code, iban, virtuagym_id, notes').order('created_at', { ascending: false }),
+      supabase.from('nm_users').select('id, full_name, email, phone, country, city, is_active, last_login_at, created_at, emergency_contact, medical_notes, document_type, document_number, address, postal_code, iban, virtuagym_id, notes, dni, current_weight').order('created_at', { ascending: false }),
       supabase.from('nm_club_members').select('user_id, role').eq('club_id', 1).eq('is_active', true),
     ])
     setUsers((usersRes.data ?? []) as NmUser[])
@@ -245,7 +250,7 @@ export default function GestionUsuariosPage() {
     } else {
       toast('success', 'Usuario creado correctamente')
       setCreateOpen(false)
-      setForm({ email: '', password: '', full_name: '', phone: '', role: 'player', document_type: '', document_number: '', address: '', postal_code: '', emergency_contact: '', medical_notes: '', notes: '' })
+      setForm({ email: '', password: '', full_name: '', phone: '', role: 'player', document_type: '', document_number: '', address: '', postal_code: '', emergency_contact: '', medical_notes: '', notes: '', dni: '', current_weight: '' })
       loadUsers()
     }
     setCreating(false)
@@ -267,6 +272,8 @@ export default function GestionUsuariosPage() {
       emergency_contact: user.emergency_contact || '',
       medical_notes: user.medical_notes || '',
       notes: user.notes || '',
+      dni: user.dni || '',
+      current_weight: user.current_weight?.toString() || '',
     })
     setDetailUser(null)
     setEditOpen(true)
@@ -473,10 +480,16 @@ export default function GestionUsuariosPage() {
               <DetailRow icon={<Calendar size={14} />} label="Registro" value={formatDateTime(detailUser.created_at)} />
             </div>
 
-            {(detailUser.document_type || detailUser.address || detailUser.emergency_contact || detailUser.iban || detailUser.notes) && (
+            {(detailUser.document_type || detailUser.address || detailUser.emergency_contact || detailUser.iban || detailUser.notes || detailUser.dni || detailUser.current_weight) && (
               <div className="rounded-lg bg-slate-700/40 divide-y divide-slate-700/60">
                 {(detailUser.document_type || detailUser.document_number) && (
                   <DetailRow icon={<FileText size={14} />} label="Documento" value={[detailUser.document_type, detailUser.document_number].filter(Boolean).join(': ') || '—'} />
+                )}
+                {detailUser.dni && (
+                  <DetailRow icon={<FileText size={14} />} label="DNI / NIE" value={detailUser.dni} />
+                )}
+                {detailUser.current_weight && (
+                  <DetailRow icon={<Activity size={14} />} label="Peso" value={`${detailUser.current_weight} kg`} />
                 )}
                 {detailUser.address && (
                   <DetailRow icon={<Home size={14} />} label="Dirección" value={[detailUser.address, detailUser.postal_code].filter(Boolean).join(', ')} />
@@ -564,6 +577,8 @@ export default function GestionUsuariosPage() {
               <FormField label="Código postal" value={form.postal_code} onChange={v => setForm(f => ({ ...f, postal_code: v }))} placeholder="28001" />
               <FormField label="Contacto emergencia" value={form.emergency_contact} onChange={v => setForm(f => ({ ...f, emergency_contact: v }))} placeholder="Nombre - Teléfono" />
               <FormField label="Notas médicas" value={form.medical_notes} onChange={v => setForm(f => ({ ...f, medical_notes: v }))} placeholder="Alergias, condiciones..." />
+              <FormField label="DNI / NIE" value={form.dni} onChange={v => setForm(f => ({ ...f, dni: v }))} placeholder="Documento atleta" />
+              <FormField label="Peso actual (kg)" type="number" value={form.current_weight} onChange={v => setForm(f => ({ ...f, current_weight: v }))} placeholder="ej. 75.5" />
             </div>
             <FormField label="Notas internas" value={form.notes} onChange={v => setForm(f => ({ ...f, notes: v }))} placeholder="Notas sobre este usuario..." />
           </div>
@@ -610,6 +625,8 @@ export default function GestionUsuariosPage() {
             <FormField label="Código postal" value={editForm.postal_code} onChange={v => setEditForm(f => ({ ...f, postal_code: v }))} />
             <FormField label="Contacto emergencia" value={editForm.emergency_contact} onChange={v => setEditForm(f => ({ ...f, emergency_contact: v }))} />
             <FormField label="Notas médicas" value={editForm.medical_notes} onChange={v => setEditForm(f => ({ ...f, medical_notes: v }))} />
+            <FormField label="DNI / NIE" value={editForm.dni} onChange={v => setEditForm(f => ({ ...f, dni: v }))} />
+            <FormField label="Peso actual (kg)" type="number" value={editForm.current_weight} onChange={v => setEditForm(f => ({ ...f, current_weight: v }))} />
           </div>
           <FormField label="Notas internas" value={editForm.notes} onChange={v => setEditForm(f => ({ ...f, notes: v }))} />
         </form>

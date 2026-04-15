@@ -25,7 +25,8 @@ export async function POST(request: Request) {
   const {
     email, password, full_name, phone, role,
     document_type, document_number, address, postal_code,
-    emergency_contact, medical_notes, notes
+    emergency_contact, medical_notes, notes,
+    dni, current_weight, injuries,
   } = body
 
   if (!email || !password || !full_name || !role) {
@@ -66,6 +67,9 @@ export async function POST(request: Request) {
       emergency_contact: emergency_contact || null,
       medical_notes: medical_notes || null,
       notes: notes || null,
+      dni: dni || null,
+      current_weight: current_weight ? Number(current_weight) : null,
+      injuries: Array.isArray(injuries) ? injuries : [],
     })
 
   if (profileError) {
@@ -111,7 +115,7 @@ export async function PATCH(request: Request) {
   }
 
   const body = await request.json()
-  const { user_id, role, full_name, phone, document_type, document_number, address, postal_code, emergency_contact, medical_notes, notes } = body
+  const { user_id, role, full_name, phone, document_type, document_number, address, postal_code, emergency_contact, medical_notes, notes, dni, current_weight, injuries } = body
 
   if (!user_id) {
     return NextResponse.json({ error: 'Falta user_id' }, { status: 400 })
@@ -130,6 +134,9 @@ export async function PATCH(request: Request) {
   if (emergency_contact !== undefined) profileUpdates.emergency_contact = emergency_contact
   if (medical_notes !== undefined) profileUpdates.medical_notes = medical_notes
   if (notes !== undefined) profileUpdates.notes = notes
+  if (dni !== undefined) profileUpdates.dni = dni
+  if (current_weight !== undefined) profileUpdates.current_weight = current_weight === null || current_weight === '' ? null : Number(current_weight)
+  if (injuries !== undefined) profileUpdates.injuries = Array.isArray(injuries) ? injuries : []
 
   if (Object.keys(profileUpdates).length > 0) {
     const { error } = await adminClient.from('nm_users').update(profileUpdates).eq('id', user_id)

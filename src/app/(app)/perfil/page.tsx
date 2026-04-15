@@ -7,22 +7,23 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
 import { useToast } from '@/components/ui/toast'
-import type { PlayerProfile } from '@/types'
+import type { PlayerProfile, Injury } from '@/types'
 import {
   User,
   Mail,
   Phone,
   MapPin,
-  Trophy,
   Target,
   Star,
   Clock,
   Handshake,
-  ChevronRight,
   Eye,
   EyeOff,
   Save,
   TrendingUp,
+  Activity,
+  Plus,
+  Trash2,
 } from 'lucide-react'
 
 // ─── helpers ──────────────────────────────────────────────
@@ -76,6 +77,14 @@ export default function MiPerfilPage() {
   const [personalForm, setPersonalForm] = useState({ full_name: '', phone: '', city: '' })
   const [savingPersonal, setSavingPersonal] = useState(false)
 
+  // editable atleta fields (migración 005)
+  const [athleteForm, setAthleteForm] = useState<{ dni: string; current_weight: string; injuries: Injury[] }>({
+    dni: '',
+    current_weight: '',
+    injuries: [],
+  })
+  const [savingAthlete, setSavingAthlete] = useState(false)
+
   // editable padel fields
   const [padelForm, setPadelForm] = useState({
     preferred_position: 'both' as 'drive' | 'reves' | 'both',
@@ -121,6 +130,11 @@ export default function MiPerfilPage() {
         phone: user.phone ?? '',
         city: user.city ?? '',
       })
+      setAthleteForm({
+        dni: user.dni ?? '',
+        current_weight: user.current_weight?.toString() ?? '',
+        injuries: Array.isArray(user.injuries) ? user.injuries : [],
+      })
       loadProfile()
     }
   }, [user, loadProfile])
@@ -148,6 +162,46 @@ export default function MiPerfilPage() {
       setSavingPersonal(false)
     }
   }, [user, personalForm, refresh, toast])
+
+  // ── save athlete data (migración 005) ──────────────────
+  const saveAthlete = useCallback(async () => {
+    if (!user) return
+    setSavingAthlete(true)
+    try {
+      const supabase = createClient()
+      const { error } = await supabase
+        .from('nm_users')
+        .update({
+          dni: athleteForm.dni || null,
+          current_weight: athleteForm.current_weight ? Number(athleteForm.current_weight) : null,
+          injuries: athleteForm.injuries,
+        })
+        .eq('id', user.id)
+      if (error) throw error
+      await refresh()
+      toast('success', 'Datos de atleta actualizados')
+    } catch {
+      toast('error', 'No se pudieron guardar los cambios')
+    } finally {
+      setSavingAthlete(false)
+    }
+  }, [user, athleteForm, refresh, toast])
+
+  function addInjury() {
+    setAthleteForm(p => ({
+      ...p,
+      injuries: [...p.injuries, { tipo: '', fecha: '', descripcion: '', activa: true }],
+    }))
+  }
+  function updateInjury(i: number, patch: Partial<Injury>) {
+    setAthleteForm(p => ({
+      ...p,
+      injuries: p.injuries.map((inj, idx) => (idx === i ? { ...inj, ...patch } : inj)),
+    }))
+  }
+  function removeInjury(i: number) {
+    setAthleteForm(p => ({ ...p, injuries: p.injuries.filter((_, idx) => idx !== i) }))
+  }
 
   // ── save padel profile ──────────────────────────────────
   const savePadel = useCallback(async () => {
@@ -342,6 +396,95 @@ export default function MiPerfilPage() {
           <Button onClick={savePersonal} loading={savingPersonal} size="sm">
             <Save size={14} />
             Guardar datos
+          </Button>
+        </div>
+      </div>
+
+      {/* ── Datos de atleta (DNI / peso / lesiones) ── */}
+      <div className="rounded-xl border border-slate-700/50 bg-slate-800/50 p-5">
+        <h2 className="mb-4 flex items-center gap-2 text-sm font-semibold uppercase tracking-wider text-slate-400">
+          <Activity size={15} />
+          Datos de atleta
+        </h2>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Input
+            id="dni"
+            label="DNI / NIE / Pasaporte"
+            value={athleteForm.dni}
+            onChange={e => setAthleteForm(p => ({ ...p, dni: e.target.value }))}
+            placeholder="Documento"
+          />
+          <Input
+            id="current_weight"
+            type="number"
+            step="0.1"
+            label="Peso actual (kg)"
+            value={athleteForm.current_weight}
+            onChange={e => setAthleteForm(p => ({ ...p, current_weight: e.target.value }))}
+            placeholder="ej. 75.5"
+          />
+        </div>
+
+        <div className="mt-4">
+          <div className="flex items-center justify-between mb-2">
+            <label className="block text-sm font-medium text-slate-300">Lesiones</label>
+            <button
+              onClick={addInjury}
+              className="flex items-center gap-1 text-xs text-cyan-400 hover:text-cyan-300"
+            >
+              <Plus size={14} /> Agregar
+            </button>
+          </div>
+          {athleteForm.injuries.length === 0 ? (
+            <p className="text-xs text-slate-500">Sin lesiones registradas</p>
+          ) : (
+            <div className="space-y-2">
+              {athleteForm.injuries.map((inj, i) => (
+                <div key={i} className="rounded-lg border border-slate-700 bg-slate-800/60 p-3 space-y-2">
+                  <div className="grid gap-2 sm:grid-cols-3">
+                    <Input
+                      placeholder="Tipo (ej. tendinitis)"
+                      value={inj.tipo}
+                      onChange={e => updateInjury(i, { tipo: e.target.value })}
+                    />
+                    <Input
+                      type="date"
+                      value={inj.fecha || ''}
+                      onChange={e => updateInjury(i, { fecha: e.target.value })}
+                    />
+                    <div className="flex items-center justify-between gap-2">
+                      <label className="flex items-center gap-2 text-xs text-slate-300">
+                        <input
+                          type="checkbox"
+                          checked={!!inj.activa}
+                          onChange={e => updateInjury(i, { activa: e.target.checked })}
+                          className="accent-cyan-500"
+                        />
+                        Activa
+                      </label>
+                      <button
+                        onClick={() => removeInjury(i)}
+                        className="p-1.5 text-red-400 hover:bg-red-500/10 rounded"
+                        title="Eliminar"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                  </div>
+                  <Input
+                    placeholder="Descripción / zona afectada"
+                    value={inj.descripcion || ''}
+                    onChange={e => updateInjury(i, { descripcion: e.target.value })}
+                  />
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="mt-4 flex justify-end">
+          <Button onClick={saveAthlete} loading={savingAthlete} size="sm">
+            <Save size={14} /> Guardar datos de atleta
           </Button>
         </div>
       </div>
