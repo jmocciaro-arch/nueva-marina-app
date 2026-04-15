@@ -151,6 +151,11 @@ export default function GestionUsuariosPage() {
   const [savingPassword, setSavingPassword] = useState(false)
   const [sendingReset, setSendingReset] = useState(false)
 
+  // Modal pedir ficha (GDPR)
+  const [fichaOpen, setFichaOpen] = useState(false)
+  const [fichaLoading, setFichaLoading] = useState(false)
+  const [fichaData, setFichaData] = useState<{ url: string; whatsapp_url: string | null; mailto_url: string | null; target: { full_name: string | null; email: string | null; phone: string | null } } | null>(null)
+
   // Modal editar usuario
   const [editOpen, setEditOpen] = useState(false)
   const [editing, setEditing] = useState(false)
@@ -333,6 +338,27 @@ export default function GestionUsuariosPage() {
       toast('success', data.message || 'Email enviado')
     }
     setSendingReset(false)
+  }
+
+  async function handlePedirFicha() {
+    if (!detailUser) return
+    setFichaLoading(true)
+    try {
+      const res = await fetch('/api/profile/request', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: detailUser.id, channel: 'link' }),
+      })
+      const j = await res.json()
+      if (!res.ok) throw new Error(j.error ?? 'Error')
+      setFichaData({ url: j.url, whatsapp_url: j.whatsapp_url, mailto_url: j.mailto_url, target: j.target })
+      setDetailUser(null)
+      setFichaOpen(true)
+    } catch (e) {
+      toast('error', (e as Error).message)
+    } finally {
+      setFichaLoading(false)
+    }
   }
 
   function openChangePassword(user: NmUser) {
@@ -630,6 +656,20 @@ export default function GestionUsuariosPage() {
               </div>
             </div>
 
+            {/* Ficha de jugador (GDPR) */}
+            <div className="bg-cyan-500/5 border border-cyan-500/20 rounded-lg p-3 space-y-2">
+              <p className="text-xs font-medium text-cyan-400 uppercase flex items-center gap-1.5">
+                <FileText size={12} /> Ficha de jugador
+              </p>
+              <p className="text-xs text-slate-500">
+                Generá un link para que el jugador complete foto, DNI, datos y consentimientos desde el celu.
+                El link caduca en 30 días.
+              </p>
+              <Button variant="secondary" size="sm" onClick={handlePedirFicha} loading={fichaLoading}>
+                <Send size={13} /> Pedir ficha
+              </Button>
+            </div>
+
             {/* Explicación de roles */}
             <div className="bg-slate-700/20 rounded-lg p-3 text-xs text-slate-500 space-y-1">
               <p className="font-medium text-slate-400">¿Qué puede hacer cada rol?</p>
@@ -857,6 +897,71 @@ export default function GestionUsuariosPage() {
               ⚠️ El usuario va a poder loguearse con esta contraseña inmediatamente.
               Las sesiones activas del usuario NO se cierran automáticamente.
             </div>
+          </div>
+        )}
+      </Modal>
+
+      {/* ─── Modal: Link ficha generado ─── */}
+      <Modal
+        open={fichaOpen}
+        onClose={() => setFichaOpen(false)}
+        title="Link de ficha generado"
+        size="sm"
+        footer={<Button variant="secondary" size="sm" onClick={() => setFichaOpen(false)}>Cerrar</Button>}
+      >
+        {fichaData && (
+          <div className="space-y-3">
+            <p className="text-sm text-slate-300">
+              Enviale este link a <strong>{fichaData.target.full_name || fichaData.target.email}</strong> — caduca en 30 días.
+            </p>
+
+            <div className="bg-slate-800 border border-slate-700 rounded-lg p-2 flex items-center gap-2">
+              <input
+                readOnly
+                value={fichaData.url}
+                onClick={e => (e.target as HTMLInputElement).select()}
+                className="flex-1 bg-transparent text-xs text-cyan-300 font-mono outline-none"
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  navigator.clipboard.writeText(fichaData.url)
+                  toast('success', 'Link copiado')
+                }}
+                className="text-xs px-2 py-1 rounded bg-cyan-600 hover:bg-cyan-500 text-white"
+              >
+                Copiar
+              </button>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              {fichaData.whatsapp_url ? (
+                <a
+                  href={fichaData.whatsapp_url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="flex items-center justify-center gap-1.5 py-2 rounded-lg bg-green-600 hover:bg-green-500 text-white text-sm font-medium"
+                >
+                  <Send size={14} /> WhatsApp
+                </a>
+              ) : (
+                <button disabled className="py-2 rounded-lg bg-slate-800 text-slate-500 text-sm cursor-not-allowed">Sin teléfono</button>
+              )}
+              {fichaData.mailto_url ? (
+                <a
+                  href={fichaData.mailto_url}
+                  className="flex items-center justify-center gap-1.5 py-2 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white text-sm font-medium"
+                >
+                  <Mail size={14} /> Email
+                </a>
+              ) : (
+                <button disabled className="py-2 rounded-lg bg-slate-800 text-slate-500 text-sm cursor-not-allowed">Sin email</button>
+              )}
+            </div>
+
+            <p className="text-[11px] text-slate-500">
+              Podés reenviar el mismo link tantas veces quieras. Una vez que el jugador completa la ficha, el link se invalida.
+            </p>
           </div>
         )}
       </Modal>
