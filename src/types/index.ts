@@ -793,3 +793,23 @@ export interface StaffShift {
   // Joined
   user?: User
 }
+
+// RECOVERY SESSIONS (migración 005)
+export interface RecoverySession {
+  id: number
+  club_id: number
+  user_id: string
+  type: 'crio' | 'hidro' | 'masaje' | 'estiramiento' | 'fisio'
+  scheduled_at: string
+  duration_minutes: number
+  status: 'scheduled' | 'completed' | 'cancelled' | 'no_show'
+  assigned_staff_id?: string
+  price?: number
+  payment_status: 'pending' | 'paid' | 'included'
+  notes?: string
+  completed_at?: string
+  created_at: string
+  // Joined
+  user?: User
+  assigned_staff?: User
+}

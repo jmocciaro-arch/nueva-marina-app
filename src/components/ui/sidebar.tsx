@@ -6,7 +6,7 @@ import {
   Users, Banknote, Settings, ChevronLeft, ChevronRight, LogOut,
   Swords, BarChart3, Lightbulb, Search, Menu, X, ChevronDown,
   Receipt, DoorOpen, MessageSquare, Target, ClipboardList, UserCog,
-  QrCode, CreditCard, CircleDot, Activity, Heart, Store
+  QrCode, CreditCard, CircleDot, Activity, Heart, Store, Droplets
 } from 'lucide-react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
@@ -62,6 +62,7 @@ const playerGroups: NavGroup[] = [
     items: [
       { icon: <Dumbbell size={18} />, label: 'Gimnasio', href: '/gimnasio' },
       { icon: <ClipboardList size={18} />, label: 'Mi Entrenamiento', href: '/mi-entrenamiento' },
+      { icon: <Droplets size={18} />, label: 'Mi Recuperación', href: '/mi-recuperacion' },
     ],
   },
   {
@@ -118,6 +119,7 @@ const adminGroups: NavGroup[] = [
     items: [
       { icon: <Dumbbell size={18} />, label: 'Clases & Gym', href: '/admin/gimnasio' },
       { icon: <ClipboardList size={18} />, label: 'Entrenamiento', href: '/admin/entrenamiento' },
+      { icon: <Droplets size={18} />, label: 'Recuperación', href: '/admin/recuperacion' },
       { icon: <DoorOpen size={18} />, label: 'Control Acceso', href: '/admin/accesos' },
     ],
   },
