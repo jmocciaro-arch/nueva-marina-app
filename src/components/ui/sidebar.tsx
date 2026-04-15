@@ -8,7 +8,7 @@ import {
   Receipt, DoorOpen, MessageSquare, Target, ClipboardList, UserCog,
   QrCode, CreditCard, CircleDot, Activity, Heart, Store, Droplets,
   Tag, CalendarDays, Package, Boxes, ScanLine, KeyRound, FileText,
-  UserCheck, GraduationCap, Shuffle, Layers, Plug, ShieldCheck
+  UserCheck, GraduationCap, Shuffle, Layers, Plug, ShieldCheck, Upload
 } from 'lucide-react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
@@ -173,6 +173,7 @@ const adminGroups: NavGroup[] = [
     icon: <Users size={16} />,
     items: [
       { icon: <Users size={18} />, label: 'Usuarios', href: '/admin/usuarios', permission: 'users.manage' },
+      { icon: <Upload size={18} />, label: 'Importar Virtuagym', href: '/admin/importar', permission: 'users.manage' },
       { icon: <UserCheck size={18} />, label: 'Miembros del club', href: '/admin/miembros', permission: 'members.manage' },
       { icon: <UserCog size={18} />, label: 'Staff & turnos', href: '/admin/staff', permission: 'staff.manage' },
       { icon: <GraduationCap size={18} />, label: 'Entrenadores', href: '/admin/entrenadores', permission: 'coaches.manage' },

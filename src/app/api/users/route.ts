@@ -27,6 +27,7 @@ export async function POST(request: Request) {
     document_type, document_number, address, postal_code,
     emergency_contact, medical_notes, notes,
     dni, current_weight, injuries,
+    iban, virtuagym_id,
   } = body
 
   if (!email || !password || !full_name || !role) {
@@ -70,6 +71,8 @@ export async function POST(request: Request) {
       dni: dni || null,
       current_weight: current_weight ? Number(current_weight) : null,
       injuries: Array.isArray(injuries) ? injuries : [],
+      iban: iban || null,
+      virtuagym_id: virtuagym_id || null,
     })
 
   if (profileError) {
@@ -115,6 +118,7 @@ export async function PATCH(request: Request) {
     user_id, role, full_name, phone, document_type, document_number, address, postal_code,
     emergency_contact, medical_notes, notes, dni, current_weight, injuries,
     birth_date, dni_nie, padel_position, padel_level,
+    iban, virtuagym_id,
     consent_image_use, consent_data_public,
     avatar_base64, avatar_url,
   } = body
@@ -153,6 +157,8 @@ export async function PATCH(request: Request) {
   if (dni_nie !== undefined) profileUpdates.dni_nie = dni_nie || null
   if (padel_position !== undefined) profileUpdates.padel_position = padel_position || null
   if (padel_level !== undefined) profileUpdates.padel_level = padel_level || null
+  if (iban !== undefined) profileUpdates.iban = iban || null
+  if (virtuagym_id !== undefined) profileUpdates.virtuagym_id = virtuagym_id || null
   if (consent_image_use !== undefined) profileUpdates.consent_image_use = consent_image_use
   if (consent_data_public !== undefined) profileUpdates.consent_data_public = consent_data_public
   if (avatar_url !== undefined) profileUpdates.avatar_url = avatar_url

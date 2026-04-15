@@ -147,6 +147,7 @@ export default function GestionUsuariosPage() {
     document_type: '', document_number: '', address: '', postal_code: '',
     emergency_contact: '', medical_notes: '', notes: '',
     dni: '', current_weight: '',
+    iban: '',
   })
 
   // Toggle mostrar/ocultar password en modal crear
@@ -173,6 +174,7 @@ export default function GestionUsuariosPage() {
     document_type: '', document_number: '', address: '', postal_code: '',
     emergency_contact: '', medical_notes: '', notes: '',
     dni: '', current_weight: '',
+    iban: '', virtuagym_id: '',
     birth_date: '', dni_nie: '', padel_position: '' as '' | 'drive' | 'reves' | 'ambos', padel_level: '',
     consent_image_use: null as boolean | null,
     consent_data_public: null as boolean | null,
@@ -287,7 +289,7 @@ export default function GestionUsuariosPage() {
     } else {
       toast('success', 'Usuario creado correctamente')
       setCreateOpen(false)
-      setForm({ email: '', password: '', full_name: '', phone: '', role: 'player', document_type: '', document_number: '', address: '', postal_code: '', emergency_contact: '', medical_notes: '', notes: '', dni: '', current_weight: '' })
+      setForm({ email: '', password: '', full_name: '', phone: '', role: 'player', document_type: '', document_number: '', address: '', postal_code: '', emergency_contact: '', medical_notes: '', notes: '', dni: '', current_weight: '', iban: '' })
       loadUsers()
     }
     setCreating(false)
@@ -311,6 +313,8 @@ export default function GestionUsuariosPage() {
       notes: user.notes || '',
       dni: user.dni || '',
       current_weight: user.current_weight?.toString() || '',
+      iban: user.iban || '',
+      virtuagym_id: user.virtuagym_id || '',
       birth_date: user.birth_date || '',
       dni_nie: user.dni_nie || '',
       padel_position: (user.padel_position as '' | 'drive' | 'reves' | 'ambos') || '',
@@ -825,6 +829,7 @@ export default function GestionUsuariosPage() {
               <FormField label="Notas médicas" value={form.medical_notes} onChange={v => setForm(f => ({ ...f, medical_notes: v }))} placeholder="Alergias, condiciones..." />
               <FormField label="DNI / NIE" value={form.dni} onChange={v => setForm(f => ({ ...f, dni: v }))} placeholder="Documento atleta" />
               <FormField label="Peso actual (kg)" type="number" value={form.current_weight} onChange={v => setForm(f => ({ ...f, current_weight: v }))} placeholder="ej. 75.5" />
+              <FormField label="IBAN" value={form.iban} onChange={v => setForm(f => ({ ...f, iban: v }))} placeholder="ES00 0000 0000 00 0000000000" />
             </div>
             <FormField label="Notas internas" value={form.notes} onChange={v => setForm(f => ({ ...f, notes: v }))} placeholder="Notas sobre este usuario..." />
           </div>
@@ -907,6 +912,8 @@ export default function GestionUsuariosPage() {
             <FormField label="Notas médicas" value={editForm.medical_notes} onChange={v => setEditForm(f => ({ ...f, medical_notes: v }))} />
             <FormField label="DNI (interno)" value={editForm.dni} onChange={v => setEditForm(f => ({ ...f, dni: v }))} />
             <FormField label="Peso actual (kg)" type="number" value={editForm.current_weight} onChange={v => setEditForm(f => ({ ...f, current_weight: v }))} />
+            <FormField label="IBAN" value={editForm.iban} onChange={v => setEditForm(f => ({ ...f, iban: v }))} placeholder="ES00 0000 0000 00 0000000000" />
+            <FormField label="Virtuagym ID" value={editForm.virtuagym_id} onChange={v => setEditForm(f => ({ ...f, virtuagym_id: v }))} placeholder="ID del sistema Virtuagym" />
           </div>
 
           {/* Pádel */}
