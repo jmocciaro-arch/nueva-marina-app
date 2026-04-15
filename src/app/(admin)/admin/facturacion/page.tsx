@@ -13,7 +13,8 @@ import { useToast } from '@/components/ui/toast'
 import { formatCurrency } from '@/lib/utils'
 import {
   Receipt, Plus, CreditCard, Users, FileText, Trash2, Edit3,
-  Ticket, Package, CheckCircle, Clock, AlertCircle, Search, XCircle
+  Ticket, Package, CheckCircle, Clock, AlertCircle, Search, XCircle,
+  Ban, RefreshCw, Download
 } from 'lucide-react'
 import type { SubscriptionPlan, Subscription, Invoice, CreditPack, UserCredit } from '@/types'
 
@@ -78,6 +79,11 @@ export default function FacturacionPage() {
   const [invoices, setInvoices] = useState<(Invoice & { user?: { full_name?: string; email?: string } })[]>([])
   const [loadingInvoices, setLoadingInvoices] = useState(true)
   const [invFilter, setInvFilter] = useState('all')
+  const [invModal, setInvModal] = useState(false)
+  const [savingInv, setSavingInv] = useState(false)
+  const [invForm, setInvForm] = useState({
+    user_id: '', description: '', subtotal: '', due_date: '', payment_method: 'cash',
+  })
 
   // ─── Credit Packs ───
   const [packs, setPacks] = useState<CreditPack[]>([])
@@ -150,7 +156,7 @@ export default function FacturacionPage() {
   useEffect(() => {
     if (tab === 'Planes') loadPlans()
     else if (tab === 'Suscripciones') { loadSubs(); loadPlans(); loadUsers() }
-    else if (tab === 'Facturas') loadInvoices()
+    else if (tab === 'Facturas') { loadInvoices(); loadUsers() }
     else if (tab === 'Bonos') loadPacks()
   }, [tab, loadPlans, loadSubs, loadInvoices, loadPacks, loadUsers])
 
@@ -244,6 +250,69 @@ export default function FacturacionPage() {
     const { error } = await supabase.from('nm_invoices').update({ status: 'paid', paid_at: new Date().toISOString() }).eq('id', id)
     if (error) toast('error', error.message)
     else { toast('success', 'Factura marcada como pagada'); loadInvoices() }
+  }
+
+  // ─── Invoice cancel (anular) ───
+  async function cancelInvoice(id: number) {
+    if (!confirm('¿Anular esta factura? Esta acción no se puede deshacer.')) return
+    const supabase = createClient()
+    const { error } = await supabase.from('nm_invoices').update({ status: 'cancelled' }).eq('id', id)
+    if (error) toast('error', error.message)
+    else { toast('info', 'Factura anulada'); loadInvoices() }
+  }
+
+  // ─── Invoice create manual ───
+  async function saveManualInvoice(e: React.FormEvent) {
+    e.preventDefault()
+    if (!invForm.user_id || !invForm.subtotal) return
+    setSavingInv(true)
+    const supabase = createClient()
+    // Generate invoice number: get the last one for this year
+    const year = new Date().getFullYear()
+    const { data: lastInv } = await supabase
+      .from('nm_invoices')
+      .select('invoice_number')
+      .like('invoice_number', `NM-${year}-%`)
+      .order('invoice_number', { ascending: false })
+      .limit(1)
+    let seq = 1
+    if (lastInv && lastInv.length > 0) {
+      const parts = lastInv[0].invoice_number?.split('-')
+      if (parts && parts[2]) seq = parseInt(parts[2], 10) + 1
+    }
+    const invoice_number = `NM-${year}-${String(seq).padStart(4, '0')}`
+    const subtotal = parseFloat(invForm.subtotal)
+    const tax = Math.round(subtotal * 0.21 * 100) / 100
+    const total = Math.round((subtotal + tax) * 100) / 100
+    const { error } = await supabase.from('nm_invoices').insert({
+      club_id: 1,
+      user_id: invForm.user_id,
+      invoice_number,
+      description: invForm.description || null,
+      subtotal,
+      tax,
+      total,
+      due_date: invForm.due_date || null,
+      payment_method: invForm.payment_method,
+      status: 'pending',
+    })
+    if (error) toast('error', error.message)
+    else {
+      toast('success', `Factura ${invoice_number} creada`)
+      setInvModal(false)
+      setInvForm({ user_id: '', description: '', subtotal: '', due_date: '', payment_method: 'cash' })
+      loadInvoices()
+    }
+    setSavingInv(false)
+  }
+
+  // ─── Subscription reactivate ───
+  async function reactivateSub(id: number) {
+    if (!confirm('¿Reactivar esta suscripción?')) return
+    const supabase = createClient()
+    const { error } = await supabase.from('nm_subscriptions').update({ status: 'active', cancelled_at: null }).eq('id', id)
+    if (error) toast('error', error.message)
+    else { toast('success', 'Suscripción reactivada'); loadSubs() }
   }
 
   // ─── Credit Pack CRUD ───
@@ -408,9 +477,12 @@ export default function FacturacionPage() {
                           {s.current_period_start && s.current_period_end ? `${s.current_period_start} → ${s.current_period_end}` : s.start_date}
                         </td>
                         <td className="py-3 text-sm text-slate-400 capitalize">{s.payment_method || '—'}</td>
-                        <td className="py-3 pr-2 text-right">
+                        <td className="py-3 pr-2 text-right flex items-center justify-end gap-1">
                           {s.status === 'active' && (
                             <button onClick={() => cancelSub(s.id)} className="p-1.5 rounded text-slate-500 hover:text-red-400 hover:bg-red-500/10 transition-colors" title="Cancelar"><XCircle size={14} /></button>
+                          )}
+                          {s.status === 'cancelled' && (
+                            <button onClick={() => reactivateSub(s.id)} className="p-1.5 rounded text-slate-500 hover:text-emerald-400 hover:bg-emerald-500/10 transition-colors" title="Reactivar"><RefreshCw size={14} /></button>
                           )}
                         </td>
                       </tr>
@@ -452,6 +524,9 @@ export default function FacturacionPage() {
                 <button key={f.v} onClick={() => setInvFilter(f.v)} className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${invFilter === f.v ? 'bg-cyan-600 text-white' : 'text-slate-400 hover:text-white'}`}>{f.l}</button>
               ))}
             </div>
+            <div className="ml-auto">
+              <Button onClick={() => setInvModal(true)}><Plus size={16} className="mr-1" /> Nueva Factura</Button>
+            </div>
           </div>
 
           <Card>
@@ -486,11 +561,29 @@ export default function FacturacionPage() {
                         <td className="py-3"><Badge variant={st.variant}>{st.label}</Badge></td>
                         <td className="py-3 text-sm text-slate-400">{inv.due_date || '—'}</td>
                         <td className="py-3 pr-2 text-right">
-                          {(inv.status === 'pending' || inv.status === 'overdue') && (
-                            <Button variant="ghost" size="sm" onClick={() => markInvoicePaid(inv.id)}>
-                              <CheckCircle size={14} className="mr-1" /> Cobrar
-                            </Button>
-                          )}
+                          <div className="flex items-center justify-end gap-1">
+                            <button
+                              onClick={() => window.open(`/api/billing/invoice-pdf?id=${inv.id}`, '_blank')}
+                              className="p-1.5 rounded text-slate-500 hover:text-cyan-400 hover:bg-cyan-500/10 transition-colors"
+                              title="Descargar PDF"
+                            >
+                              <FileText size={14} />
+                            </button>
+                            {(inv.status === 'pending' || inv.status === 'overdue') && (
+                              <>
+                                <Button variant="ghost" size="sm" onClick={() => markInvoicePaid(inv.id)}>
+                                  <CheckCircle size={14} className="mr-1" /> Cobrar
+                                </Button>
+                                <button
+                                  onClick={() => cancelInvoice(inv.id)}
+                                  className="p-1.5 rounded text-slate-500 hover:text-red-400 hover:bg-red-500/10 transition-colors"
+                                  title="Anular factura"
+                                >
+                                  <Ban size={14} />
+                                </button>
+                              </>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     )
@@ -499,6 +592,75 @@ export default function FacturacionPage() {
               </table>
             </div>
           </Card>
+
+          <Modal
+            open={invModal}
+            onClose={() => setInvModal(false)}
+            title="Nueva Factura Manual"
+            footer={
+              <div className="flex gap-3">
+                <Button variant="ghost" onClick={() => setInvModal(false)}>Cancelar</Button>
+                <Button onClick={saveManualInvoice} loading={savingInv}>Crear Factura</Button>
+              </div>
+            }
+          >
+            <form onSubmit={saveManualInvoice} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-300 mb-1">Usuario</label>
+                <select
+                  value={invForm.user_id}
+                  onChange={e => setInvForm(f => ({ ...f, user_id: e.target.value }))}
+                  required
+                  className="w-full rounded-lg border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-cyan-500/40"
+                >
+                  <option value="">Seleccionar usuario...</option>
+                  {userOptions.map(u => <option key={u.value} value={u.value}>{u.label}</option>)}
+                </select>
+              </div>
+              <Input
+                label="Descripción"
+                placeholder="Servicio de pista extra, cuota mensual, etc."
+                value={invForm.description}
+                onChange={e => setInvForm(f => ({ ...f, description: e.target.value }))}
+              />
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Input
+                    label="Subtotal (EUR)"
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    required
+                    value={invForm.subtotal}
+                    onChange={e => setInvForm(f => ({ ...f, subtotal: e.target.value }))}
+                  />
+                  {invForm.subtotal && !isNaN(parseFloat(invForm.subtotal)) && (
+                    <div className="mt-1 text-xs text-slate-500 space-y-0.5">
+                      <p>IVA 21%: {(parseFloat(invForm.subtotal) * 0.21).toFixed(2)} €</p>
+                      <p className="text-slate-300 font-medium">Total: {(parseFloat(invForm.subtotal) * 1.21).toFixed(2)} €</p>
+                    </div>
+                  )}
+                </div>
+                <Input
+                  label="Fecha vencimiento"
+                  type="date"
+                  value={invForm.due_date}
+                  onChange={e => setInvForm(f => ({ ...f, due_date: e.target.value }))}
+                />
+              </div>
+              <Select
+                label="Método de pago"
+                value={invForm.payment_method}
+                onChange={e => setInvForm(f => ({ ...f, payment_method: e.target.value }))}
+                options={[
+                  { value: 'cash', label: 'Efectivo' },
+                  { value: 'card', label: 'Tarjeta' },
+                  { value: 'transfer', label: 'Transferencia' },
+                  { value: 'direct_debit', label: 'Domiciliación' },
+                ]}
+              />
+            </form>
+          </Modal>
         </>
       )}
 

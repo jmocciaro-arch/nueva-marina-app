@@ -7,11 +7,14 @@ import {
   Users,
   Plus,
   LogIn,
+  LogOut,
   Clock,
   CheckCircle,
   XCircle,
   Activity,
   Tag,
+  Edit3,
+  Trash2,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { lookupPrice } from '@/lib/api/pricing'
@@ -202,6 +205,10 @@ export default function GestionGimnasioPage() {
   const [classModal, setClassModal] = useState(false)
   const [sessionModal, setSessionModal] = useState(false)
 
+  // Editing state
+  const [editingMembership, setEditingMembership] = useState<Membership | null>(null)
+  const [editingClass, setEditingClass] = useState<GymClass | null>(null)
+
   // Forms
   const [membershipForm, setMembershipForm] = useState<MembershipForm>(MEMBERSHIP_FORM_EMPTY)
   const [classForm, setClassForm] = useState<ClassForm>(CLASS_FORM_EMPTY)
@@ -331,7 +338,38 @@ export default function GestionGimnasioPage() {
     ...users.map(u => ({ value: u.id, label: u.full_name })),
   ]
 
-  // ─── Membresías: guardar ──────────────────────────────────────────────────────
+  // ─── Membresías: editar ───────────────────────────────────────────────────────
+
+  function openEditMembership(m: Membership) {
+    setEditingMembership(m)
+    setMembershipForm({
+      user_id: m.user_id,
+      plan: m.plan,
+      price: String(m.price),
+      billing_cycle: m.billing_cycle,
+      start_date: m.start_date.slice(0, 10),
+      end_date: m.end_date ? m.end_date.slice(0, 10) : '',
+      status: m.status,
+      auto_renew: m.auto_renew,
+    })
+    setMembershipModal(true)
+  }
+
+  // ─── Membresías: eliminar ─────────────────────────────────────────────────────
+
+  async function handleDeleteMembership(id: number) {
+    if (!confirm('¿Eliminás esta membresía? Esta acción no se puede deshacer.')) return
+    const supabase = createClient()
+    const { error } = await supabase.from('nm_gym_memberships').delete().eq('id', id)
+    if (error) {
+      toast('error', 'No se pudo eliminar la membresía')
+    } else {
+      toast('success', 'Membresía eliminada')
+      loadAll()
+    }
+  }
+
+  // ─── Membresías: guardar (crear o actualizar) ─────────────────────────────────
 
   async function handleGuardarMembresia() {
     if (!membershipForm.user_id) {
@@ -362,7 +400,7 @@ export default function GestionGimnasioPage() {
     }
     const finalPrice = finalRule?.amount ?? parseFloat(membershipForm.price)
 
-    const { error } = await supabase.from('nm_gym_memberships').insert({
+    const payload = {
       club_id: CLUB_ID,
       user_id: membershipForm.user_id,
       plan: membershipForm.plan,
@@ -373,20 +411,74 @@ export default function GestionGimnasioPage() {
       end_date: membershipForm.end_date || null,
       status: membershipForm.status,
       auto_renew: membershipForm.auto_renew,
-    })
+    }
+
+    let error
+    if (editingMembership) {
+      ;({ error } = await supabase.from('nm_gym_memberships').update(payload).eq('id', editingMembership.id))
+    } else {
+      ;({ error } = await supabase.from('nm_gym_memberships').insert(payload))
+    }
 
     if (error) {
-      toast('error', 'No se pudo crear la membresía')
+      toast('error', editingMembership ? 'No se pudo actualizar la membresía' : 'No se pudo crear la membresía')
     } else {
-      toast('success', 'Membresía creada correctamente')
+      toast('success', editingMembership ? 'Membresía actualizada' : 'Membresía creada correctamente')
       setMembershipModal(false)
       setMembershipForm(MEMBERSHIP_FORM_EMPTY)
+      setEditingMembership(null)
       loadAll()
     }
     setSavingMembership(false)
   }
 
-  // ─── Clases: guardar ──────────────────────────────────────────────────────────
+  // ─── Clases: editar ───────────────────────────────────────────────────────────
+
+  function openEditClass(c: GymClass) {
+    setEditingClass(c)
+    setClassForm({
+      name: c.name,
+      instructor_id: c.instructor_id ?? '',
+      day_of_week: String(c.day_of_week),
+      start_time: c.start_time.slice(0, 5),
+      end_time: c.end_time.slice(0, 5),
+      max_capacity: String(c.max_capacity),
+      is_active: c.is_active,
+    })
+    setClassModal(true)
+  }
+
+  // ─── Clases: eliminar ─────────────────────────────────────────────────────────
+
+  async function handleDeleteClass(id: number) {
+    if (!confirm('¿Eliminás esta clase? Esta acción no se puede deshacer.')) return
+    const supabase = createClient()
+    const { error } = await supabase.from('nm_gym_classes').delete().eq('id', id)
+    if (error) {
+      toast('error', 'No se pudo eliminar la clase')
+    } else {
+      toast('success', 'Clase eliminada')
+      loadAll()
+    }
+  }
+
+  // ─── Clases: toggle activa ────────────────────────────────────────────────────
+
+  async function handleToggleClassActive(c: GymClass) {
+    const supabase = createClient()
+    const { error } = await supabase
+      .from('nm_gym_classes')
+      .update({ is_active: !c.is_active })
+      .eq('id', c.id)
+    if (error) {
+      toast('error', 'No se pudo actualizar la clase')
+    } else {
+      toast('info', c.is_active ? 'Clase desactivada' : 'Clase activada')
+      loadAll()
+    }
+  }
+
+  // ─── Clases: guardar (crear o actualizar) ────────────────────────────────────
 
   async function handleGuardarClase() {
     if (!classForm.name.trim()) {
@@ -401,7 +493,7 @@ export default function GestionGimnasioPage() {
     const supabase = createClient()
     setSavingClass(true)
 
-    const { error } = await supabase.from('nm_gym_classes').insert({
+    const payload = {
       club_id: CLUB_ID,
       name: classForm.name.trim(),
       instructor_id: classForm.instructor_id || null,
@@ -410,17 +502,65 @@ export default function GestionGimnasioPage() {
       end_time: classForm.end_time,
       max_capacity: parseInt(classForm.max_capacity) || 15,
       is_active: classForm.is_active,
-    })
+    }
+
+    let error
+    if (editingClass) {
+      ;({ error } = await supabase.from('nm_gym_classes').update(payload).eq('id', editingClass.id))
+    } else {
+      ;({ error } = await supabase.from('nm_gym_classes').insert(payload))
+    }
 
     if (error) {
-      toast('error', 'No se pudo crear la clase')
+      toast('error', editingClass ? 'No se pudo actualizar la clase' : 'No se pudo crear la clase')
     } else {
-      toast('success', 'Clase creada correctamente')
+      toast('success', editingClass ? 'Clase actualizada' : 'Clase creada correctamente')
       setClassModal(false)
       setClassForm(CLASS_FORM_EMPTY)
+      setEditingClass(null)
       loadAll()
     }
     setSavingClass(false)
+  }
+
+  // ─── Sesiones: checkout ───────────────────────────────────────────────────────
+
+  async function handleCheckout(id: number) {
+    const supabase = createClient()
+    const now = new Date()
+    const session = sessions.find(s => s.id === id)
+    const durationMinutes = session
+      ? Math.round((now.getTime() - new Date(session.check_in).getTime()) / 60000)
+      : null
+
+    const { error } = await supabase
+      .from('nm_gym_sessions')
+      .update({
+        check_out: now.toISOString(),
+        duration_minutes: durationMinutes,
+      })
+      .eq('id', id)
+
+    if (error) {
+      toast('error', 'No se pudo registrar el check-out')
+    } else {
+      toast('success', 'Check-out registrado')
+      loadAll()
+    }
+  }
+
+  // ─── Sesiones: eliminar ───────────────────────────────────────────────────────
+
+  async function handleDeleteSession(id: number) {
+    if (!confirm('¿Eliminás esta sesión? Esta acción no se puede deshacer.')) return
+    const supabase = createClient()
+    const { error } = await supabase.from('nm_gym_sessions').delete().eq('id', id)
+    if (error) {
+      toast('error', 'No se pudo eliminar la sesión')
+    } else {
+      toast('success', 'Sesión eliminada')
+      loadAll()
+    }
   }
 
   // ─── Sesiones: registrar check-in ────────────────────────────────────────────
@@ -542,18 +682,25 @@ export default function GestionGimnasioPage() {
             <MembershipsTab
               memberships={memberships}
               onNueva={() => {
+                setEditingMembership(null)
                 setMembershipForm(MEMBERSHIP_FORM_EMPTY)
                 setMembershipModal(true)
               }}
+              onEdit={openEditMembership}
+              onDelete={handleDeleteMembership}
             />
           )}
           {activeTab === 'clases' && (
             <ClassesTab
               classes={classes}
               onNueva={() => {
+                setEditingClass(null)
                 setClassForm(CLASS_FORM_EMPTY)
                 setClassModal(true)
               }}
+              onEdit={openEditClass}
+              onDelete={handleDeleteClass}
+              onToggleActive={handleToggleClassActive}
             />
           )}
           {activeTab === 'sesiones' && (
@@ -563,25 +710,35 @@ export default function GestionGimnasioPage() {
                 setSessionForm(SESSION_FORM_EMPTY)
                 setSessionModal(true)
               }}
+              onCheckout={handleCheckout}
+              onDelete={handleDeleteSession}
             />
           )}
         </>
       )}
 
-      {/* Modal nueva membresía */}
+      {/* Modal membresía (nueva o editar) */}
       <Modal
         open={membershipModal}
-        onClose={() => setMembershipModal(false)}
-        title="Nueva membresía"
+        onClose={() => {
+          setMembershipModal(false)
+          setEditingMembership(null)
+          setMembershipForm(MEMBERSHIP_FORM_EMPTY)
+        }}
+        title={editingMembership ? 'Editar membresía' : 'Nueva membresía'}
         size="md"
         footer={
           <>
-            <Button variant="secondary" onClick={() => setMembershipModal(false)}>
+            <Button variant="secondary" onClick={() => {
+              setMembershipModal(false)
+              setEditingMembership(null)
+              setMembershipForm(MEMBERSHIP_FORM_EMPTY)
+            }}>
               Cancelar
             </Button>
             <Button loading={savingMembership} onClick={handleGuardarMembresia}>
-              <Plus size={14} />
-              Crear membresía
+              {editingMembership ? <Edit3 size={14} /> : <Plus size={14} />}
+              {editingMembership ? 'Actualizar' : 'Crear membresía'}
             </Button>
           </>
         }
@@ -678,20 +835,28 @@ export default function GestionGimnasioPage() {
         </div>
       </Modal>
 
-      {/* Modal nueva clase */}
+      {/* Modal clase (nueva o editar) */}
       <Modal
         open={classModal}
-        onClose={() => setClassModal(false)}
-        title="Nueva clase"
+        onClose={() => {
+          setClassModal(false)
+          setEditingClass(null)
+          setClassForm(CLASS_FORM_EMPTY)
+        }}
+        title={editingClass ? 'Editar clase' : 'Nueva clase'}
         size="md"
         footer={
           <>
-            <Button variant="secondary" onClick={() => setClassModal(false)}>
+            <Button variant="secondary" onClick={() => {
+              setClassModal(false)
+              setEditingClass(null)
+              setClassForm(CLASS_FORM_EMPTY)
+            }}>
               Cancelar
             </Button>
             <Button loading={savingClass} onClick={handleGuardarClase}>
-              <Plus size={14} />
-              Crear clase
+              {editingClass ? <Edit3 size={14} /> : <Plus size={14} />}
+              {editingClass ? 'Actualizar' : 'Crear clase'}
             </Button>
           </>
         }
@@ -830,9 +995,13 @@ export default function GestionGimnasioPage() {
 function MembershipsTab({
   memberships,
   onNueva,
+  onEdit,
+  onDelete,
 }: {
   memberships: Membership[]
   onNueva: () => void
+  onEdit: (m: Membership) => void
+  onDelete: (id: number) => void
 }) {
   return (
     <div className="space-y-4">
@@ -857,6 +1026,7 @@ function MembershipsTab({
                 <th className="px-4 py-3 text-left font-medium text-slate-400">Estado</th>
                 <th className="px-4 py-3 text-left font-medium text-slate-400">Inicio</th>
                 <th className="px-4 py-3 text-left font-medium text-slate-400">Vence</th>
+                <th className="px-4 py-3 text-left font-medium text-slate-400">Acciones</th>
               </tr>
             </thead>
             <tbody>
@@ -886,6 +1056,16 @@ function MembershipsTab({
                       ? formatDate(m.end_date, { day: 'numeric', month: 'short', year: 'numeric' })
                       : <span className="text-slate-600">—</span>}
                   </td>
+                  <td className="px-4 py-3">
+                    <div className="flex items-center gap-1">
+                      <Button variant="ghost" size="sm" onClick={() => onEdit(m)} title="Editar">
+                        <Edit3 size={14} />
+                      </Button>
+                      <Button variant="ghost" size="sm" onClick={() => onDelete(m.id)} title="Eliminar" className="text-red-400 hover:text-red-300">
+                        <Trash2 size={14} />
+                      </Button>
+                    </div>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -901,9 +1081,15 @@ function MembershipsTab({
 function ClassesTab({
   classes,
   onNueva,
+  onEdit,
+  onDelete,
+  onToggleActive,
 }: {
   classes: GymClass[]
   onNueva: () => void
+  onEdit: (c: GymClass) => void
+  onDelete: (id: number) => void
+  onToggleActive: (c: GymClass) => void
 }) {
   const classesByDay = [0, 1, 2, 3, 4, 5, 6].reduce<Record<number, GymClass[]>>((acc, d) => {
     acc[d] = classes.filter(c => c.day_of_week === d)
@@ -960,6 +1146,30 @@ function ClassesTab({
                           <span className="text-[10px] text-slate-600">Inactiva</span>
                         )}
                       </div>
+                      {/* Acciones */}
+                      <div className="flex items-center gap-0.5 mt-1.5 pt-1.5 border-t border-slate-700/40">
+                        <button
+                          onClick={() => onEdit(c)}
+                          title="Editar"
+                          className="p-0.5 rounded text-slate-400 hover:text-cyan-300 transition-colors"
+                        >
+                          <Edit3 size={11} />
+                        </button>
+                        <button
+                          onClick={() => onToggleActive(c)}
+                          title={c.is_active ? 'Desactivar' : 'Activar'}
+                          className={['p-0.5 rounded transition-colors', c.is_active ? 'text-green-400 hover:text-green-300' : 'text-slate-500 hover:text-green-400'].join(' ')}
+                        >
+                          {c.is_active ? <CheckCircle size={11} /> : <XCircle size={11} />}
+                        </button>
+                        <button
+                          onClick={() => onDelete(c.id)}
+                          title="Eliminar"
+                          className="p-0.5 rounded text-slate-500 hover:text-red-400 transition-colors"
+                        >
+                          <Trash2 size={11} />
+                        </button>
+                      </div>
                     </div>
                   ))
                 )}
@@ -977,9 +1187,13 @@ function ClassesTab({
 function SessionsTab({
   sessions,
   onCheckin,
+  onCheckout,
+  onDelete,
 }: {
   sessions: GymSession[]
   onCheckin: () => void
+  onCheckout: (id: number) => void
+  onDelete: (id: number) => void
 }) {
   return (
     <div className="space-y-4">
@@ -1007,6 +1221,7 @@ function SessionsTab({
                 <th className="px-4 py-3 text-left font-medium text-slate-400">Entrada</th>
                 <th className="px-4 py-3 text-left font-medium text-slate-400">Salida</th>
                 <th className="px-4 py-3 text-left font-medium text-slate-400">Duración</th>
+                <th className="px-4 py-3 text-left font-medium text-slate-400">Acciones</th>
               </tr>
             </thead>
             <tbody>
@@ -1044,6 +1259,18 @@ function SessionsTab({
                         : checkOutDate
                           ? `${Math.round((checkOutDate.getTime() - checkInDate.getTime()) / 60000)} min`
                           : <span className="text-slate-600">—</span>}
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-1">
+                        {!s.check_out && (
+                          <Button variant="ghost" size="sm" onClick={() => onCheckout(s.id)} title="Registrar salida" className="text-green-400 hover:text-green-300">
+                            <LogOut size={14} />
+                          </Button>
+                        )}
+                        <Button variant="ghost" size="sm" onClick={() => onDelete(s.id)} title="Eliminar" className="text-red-400 hover:text-red-300">
+                          <Trash2 size={14} />
+                        </Button>
+                      </div>
                     </td>
                   </tr>
                 )
