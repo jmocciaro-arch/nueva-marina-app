@@ -7,8 +7,7 @@ import {
   Swords, BarChart3, Lightbulb, Search, Menu, X, ChevronDown,
   Receipt, DoorOpen, MessageSquare, Target, ClipboardList, UserCog,
   QrCode, CreditCard, CircleDot, Activity, Heart, Store, Droplets,
-  Tag, CalendarDays, Package, Boxes, ScanLine, KeyRound, FileText,
-  UserCheck, GraduationCap, Shuffle, Layers, Plug, ShieldCheck, Upload
+  Tag, Layers, ShieldCheck, Upload
 } from 'lucide-react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
@@ -101,7 +100,6 @@ const adminGroups: NavGroup[] = [
     icon: <LayoutDashboard size={16} />,
     items: [
       { icon: <LayoutDashboard size={18} />, label: 'Dashboard', href: '/admin', permission: 'dashboard.view' },
-      { icon: <CalendarDays size={18} />, label: 'Agenda unificada', href: '/admin/agenda', permission: 'agenda.view' },
     ],
   },
   {
@@ -121,10 +119,9 @@ const adminGroups: NavGroup[] = [
     label: 'Gimnasio & Wellness',
     icon: <Dumbbell size={16} />,
     items: [
-      { icon: <Dumbbell size={18} />, label: 'Clases & asistencias', href: '/admin/gimnasio/clases', permission: 'gym.classes' },
+      { icon: <Dumbbell size={18} />, label: 'Gimnasio', href: '/admin/gimnasio', permission: 'gym.classes' },
       { icon: <ClipboardList size={18} />, label: 'Planes de entrenamiento', href: '/admin/entrenamiento', permission: 'training.manage' },
       { icon: <Droplets size={18} />, label: 'Recuperación', href: '/admin/recuperacion', permission: 'recovery.manage' },
-      { icon: <CreditCard size={18} />, label: 'Membresías gym', href: '/admin/gimnasio/membresias', permission: 'gym.memberships' },
     ],
   },
   {
@@ -132,9 +129,7 @@ const adminGroups: NavGroup[] = [
     label: 'Control de acceso',
     icon: <DoorOpen size={16} />,
     items: [
-      { icon: <ScanLine size={18} />, label: 'Puntos de acceso', href: '/admin/accesos/puntos', permission: 'access.points' },
-      { icon: <KeyRound size={18} />, label: 'Credenciales', href: '/admin/accesos/credenciales', permission: 'access.credentials' },
-      { icon: <Activity size={18} />, label: 'Registro en vivo', href: '/admin/accesos', permission: 'access.logs' },
+      { icon: <DoorOpen size={18} />, label: 'Control de acceso', href: '/admin/accesos', permission: 'access.logs' },
     ],
   },
   {
@@ -143,9 +138,6 @@ const adminGroups: NavGroup[] = [
     icon: <Store size={16} />,
     items: [
       { icon: <ShoppingBag size={18} />, label: 'Tienda', href: '/admin/tienda', permission: 'shop.manage' },
-      { icon: <Layers size={18} />, label: 'Categorías', href: '/admin/tienda/categorias', permission: 'shop.categories' },
-      { icon: <Boxes size={18} />, label: 'Stock & compras', href: '/admin/tienda/stock', permission: 'shop.stock' },
-      { icon: <Package size={18} />, label: 'Punto de venta', href: '/admin/tienda/pos', permission: 'shop.pos' },
     ],
   },
   {
@@ -154,9 +146,7 @@ const adminGroups: NavGroup[] = [
     icon: <Banknote size={16} />,
     items: [
       { icon: <Banknote size={18} />, label: 'Caja', href: '/admin/caja', permission: 'cash.manage' },
-      { icon: <Receipt size={18} />, label: 'Facturación', href: '/admin/facturacion', permission: 'billing.manage' },
-      { icon: <CreditCard size={18} />, label: 'Suscripciones', href: '/admin/suscripciones', permission: 'subscriptions.manage' },
-      { icon: <Shuffle size={18} />, label: 'Conciliación', href: '/admin/conciliacion', permission: 'finance.reconcile' },
+      { icon: <Receipt size={18} />, label: 'Facturación & Suscripciones', href: '/admin/facturacion', permission: 'billing.manage' },
     ],
   },
   {
@@ -165,6 +155,7 @@ const adminGroups: NavGroup[] = [
     icon: <Tag size={16} />,
     items: [
       { icon: <Tag size={18} />, label: 'Reglas de precio', href: '/admin/pricing', permission: 'pricing.manage' },
+      { icon: <Banknote size={18} />, label: 'Precios', href: '/admin/precios', permission: 'pricing.manage' },
     ],
   },
   {
@@ -174,9 +165,7 @@ const adminGroups: NavGroup[] = [
     items: [
       { icon: <Users size={18} />, label: 'Usuarios', href: '/admin/usuarios', permission: 'users.manage' },
       { icon: <Upload size={18} />, label: 'Importar Virtuagym', href: '/admin/importar', permission: 'users.manage' },
-      { icon: <UserCheck size={18} />, label: 'Miembros del club', href: '/admin/miembros', permission: 'members.manage' },
       { icon: <UserCog size={18} />, label: 'Staff & turnos', href: '/admin/staff', permission: 'staff.manage' },
-      { icon: <GraduationCap size={18} />, label: 'Entrenadores', href: '/admin/entrenadores', permission: 'coaches.manage' },
     ],
   },
   {
@@ -184,7 +173,7 @@ const adminGroups: NavGroup[] = [
     label: 'Comunidad',
     icon: <MessageSquare size={16} />,
     items: [
-      { icon: <MessageSquare size={18} />, label: 'Feed', href: '/admin/feed', permission: 'community.feed' },
+      { icon: <MessageSquare size={18} />, label: 'Feed / Comunidad', href: '/admin/comunidad', permission: 'community.feed' },
       { icon: <Target size={18} />, label: 'Retos & badges', href: '/admin/retos', permission: 'community.challenges' },
     ],
   },
@@ -193,8 +182,7 @@ const adminGroups: NavGroup[] = [
     label: 'Reportes',
     icon: <BarChart3 size={16} />,
     items: [
-      { icon: <Activity size={18} />, label: 'Operativos', href: '/admin/reportes/operativo', permission: 'reports.operational' },
-      { icon: <BarChart3 size={18} />, label: 'Financieros', href: '/admin/reportes/financiero', permission: 'reports.financial' },
+      { icon: <BarChart3 size={18} />, label: 'Reportes', href: '/admin/reportes', permission: 'reports.operational' },
     ],
   },
   {
@@ -205,9 +193,7 @@ const adminGroups: NavGroup[] = [
       { icon: <Settings size={18} />, label: 'Club', href: '/admin/config', permission: 'config.club' },
       { icon: <Layers size={18} />, label: 'Módulos activos', href: '/admin/config/modulos', permission: 'config.modules' },
       { icon: <ShieldCheck size={18} />, label: 'Roles & permisos', href: '/admin/config/roles', permission: 'config.roles' },
-      { icon: <Plug size={18} />, label: 'Integraciones', href: '/admin/config/integraciones', permission: 'config.integrations' },
-      { icon: <FileText size={18} />, label: 'Auditoría', href: '/admin/config/auditoria', permission: 'config.audit' },
-      { icon: <Lightbulb size={18} />, label: 'Innovación', href: '/admin/innovacion' }, // sin permiso: siempre visible a admins
+      { icon: <Lightbulb size={18} />, label: 'Innovación', href: '/admin/innovacion' },
     ],
   },
 ]
