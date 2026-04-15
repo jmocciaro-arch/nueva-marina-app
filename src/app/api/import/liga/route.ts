@@ -72,7 +72,21 @@ function splitPlayers(teamName: string): { p1: string; p2: string; p3?: string }
  * columnas B-F (índice 1-5) para JORNADA par/impar, G-L (índice 7-11) para la otra.
  */
 function parseCategorySheet(ws: XLSX.WorkSheet, sheetName: string): ParsedCategory | null {
-  const data = XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, defval: null, blankrows: true })
+  // Forzamos que la grilla arranque siempre en A1 para que los índices de columna sean consistentes
+  const range = ws['!ref'] ? XLSX.utils.decode_range(ws['!ref']) : { s: { r: 0, c: 0 }, e: { r: 200, c: 25 } }
+  const maxRow = Math.min(range.e.r + 2, 500)
+  const maxCol = Math.min(range.e.c + 2, 50)
+  const grid: (string | number | null)[][] = []
+  for (let r = 0; r <= maxRow; r++) {
+    const row: (string | number | null)[] = []
+    for (let c = 0; c <= maxCol; c++) {
+      const addr = XLSX.utils.encode_cell({ r, c })
+      const cell = ws[addr]
+      row.push(cell ? (cell.v as string | number | null) : null)
+    }
+    grid.push(row)
+  }
+
   const key = normalizeSheetKey(sheetName)
   const meta = CATEGORY_MAP[key] ?? {
     name: sheetName.trim(),
@@ -84,42 +98,38 @@ function parseCategorySheet(ws: XLSX.WorkSheet, sheetName: string): ParsedCatego
   const rounds: ParsedRound[] = []
   const teamsSet = new Set<string>()
 
-  // Escaneo: buscar filas cuya col B o col H sean "JORNADA N"
-  for (let r = 0; r < data.length; r++) {
-    const row = data[r] ?? []
-    for (const col of [1, 7]) { // B=1, H=7
+  // Escaneo: buscar cualquier celda con "JORNADA N" en toda la grilla
+  for (let r = 0; r < grid.length; r++) {
+    const row = grid[r] ?? []
+    for (let col = 0; col < row.length; col++) {
       const cell = row[col]
       if (typeof cell !== 'string') continue
       const m = /JORNADA\s+(\d+)/i.exec(cell)
       if (!m) continue
       const roundNumber = parseInt(m[1], 10)
 
-      // Los equipos están en las 8 filas siguientes (algunas categorías tienen 6, otras 8)
+      // Recolectar equipos en las filas siguientes de la misma columna
       const labels: string[] = []
-      for (let k = 1; k <= 10; k++) {
-        const nextRow = data[r + k] ?? []
+      for (let k = 1; k <= 12; k++) {
+        const nextRow = grid[r + k] ?? []
         const val = nextRow[col]
         if (val == null) continue
         const asStr = String(val).trim()
         if (!asStr) continue
-        // Stop si encontramos otra JORNADA en esta columna
         if (/JORNADA\s+\d+/i.test(asStr)) break
-        // O si cambia la estructura (cabecera tipo "PTOS" suelta)
-        if (/^PTOS$|^1 SET$|^2 SET$|^3 SET$/i.test(asStr)) continue
+        if (/^PTOS$|^1 SET$|^2 SET$|^3 SET$|^EQUIPOS/i.test(asStr)) continue
         labels.push(normalizeTeamName(asStr))
       }
 
       if (labels.length < 2) continue
 
-      // Pair: i vs i+1
       const matches: ParsedMatch[] = []
       for (let i = 0; i + 1 < labels.length; i += 2) {
         const t1 = labels[i]
         const t2 = labels[i + 1]
         const bye = /^DESCANSA|^DESCANSO/i.test(t1) || /^DESCANSA|^DESCANSO/i.test(t2)
         if (!bye) {
-          teamsSet.add(t1)
-          teamsSet.add(t2)
+          teamsSet.add(t1); teamsSet.add(t2)
         } else {
           if (!/^DESCANSA|^DESCANSO/i.test(t1)) teamsSet.add(t1)
           if (!/^DESCANSA|^DESCANSO/i.test(t2)) teamsSet.add(t2)
@@ -127,7 +137,6 @@ function parseCategorySheet(ws: XLSX.WorkSheet, sheetName: string): ParsedCatego
         matches.push({ team1: t1, team2: t2, bye })
       }
 
-      // Evitar duplicar jornadas (por si aparece el mismo número en ambas columnas)
       if (!rounds.find(rd => rd.round_number === roundNumber)) {
         rounds.push({ round_number: roundNumber, matches })
       }
