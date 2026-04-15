@@ -15,6 +15,7 @@ import {
   FileSpreadsheet,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
+import { useRealtimeRefresh } from '@/hooks/use-realtime-refresh'
 import { KpiCard } from '@/components/ui/kpi-card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -171,6 +172,9 @@ export default function GestionLigasPage() {
   useEffect(() => {
     loadLeagues()
   }, [loadLeagues])
+
+  // Auto-refresh: Realtime + focus
+  useRealtimeRefresh(['nm_leagues'], loadLeagues)
 
   // ─── KPIs ────────────────────────────────────────────────────────────────
 

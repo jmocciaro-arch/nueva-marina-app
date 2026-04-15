@@ -8,6 +8,7 @@ import {
   Pencil, Layers, ListOrdered, Medal,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
+import { useRealtimeRefresh } from '@/hooks/use-realtime-refresh'
 import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -122,6 +123,12 @@ export default function LigaDetallePage() {
   }, [leagueId, toast, router, activeCategoryId])
 
   useEffect(() => { load() }, [load])
+
+  // Auto-refresh en vivo sobre todas las tablas de la liga
+  useRealtimeRefresh(
+    ['nm_leagues', 'nm_league_categories', 'nm_league_teams', 'nm_league_rounds', 'nm_league_matches'],
+    load,
+  )
 
   if (loading) return <div className="p-8 text-slate-400">Cargando liga…</div>
   if (!league) return null
