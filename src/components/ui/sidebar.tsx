@@ -6,11 +6,14 @@ import {
   Users, Banknote, Settings, ChevronLeft, ChevronRight, LogOut,
   Swords, BarChart3, Lightbulb, Search, Menu, X, ChevronDown,
   Receipt, DoorOpen, MessageSquare, Target, ClipboardList, UserCog,
-  QrCode, CreditCard, CircleDot, Activity, Heart, Store, Droplets
+  QrCode, CreditCard, CircleDot, Activity, Heart, Store, Droplets,
+  Tag, CalendarDays, Package, Boxes, ScanLine, KeyRound, FileText,
+  UserCheck, GraduationCap, Shuffle, Layers, Plug, ShieldCheck
 } from 'lucide-react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useState, useEffect } from 'react'
+import { usePermissions } from '@/lib/use-permissions'
 
 // ─────────────────────────────────────────────────────────────
 // Types
@@ -20,6 +23,7 @@ interface NavItem {
   label: string
   href: string
   badge?: number
+  permission?: string // clave requerida; si falta, ver siempre
 }
 
 interface NavGroup {
@@ -27,11 +31,10 @@ interface NavGroup {
   label: string
   icon: React.ReactNode
   items: NavItem[]
-  staffVisible?: boolean // if true, staff role can see this group
 }
 
 // ─────────────────────────────────────────────────────────────
-// Player navigation (flat, simpler)
+// Player navigation (no permissions — el player ve su mundo)
 // ─────────────────────────────────────────────────────────────
 const playerGroups: NavGroup[] = [
   {
@@ -87,76 +90,122 @@ const playerGroups: NavGroup[] = [
 ]
 
 // ─────────────────────────────────────────────────────────────
-// Admin navigation (grouped by area)
+// Admin navigation v3 (11 grupos, cada item con permission key)
+// Fuente: JSON AdminSidebarV3
 // ─────────────────────────────────────────────────────────────
 const adminGroups: NavGroup[] = [
   {
-    id: 'main',
-    label: 'General',
+    id: 'operacion',
+    label: 'Operación',
     icon: <LayoutDashboard size={16} />,
-    staffVisible: true,
     items: [
-      { icon: <LayoutDashboard size={18} />, label: 'Dashboard', href: '/admin' },
+      { icon: <LayoutDashboard size={18} />, label: 'Dashboard', href: '/admin', permission: 'dashboard.view' },
+      { icon: <CalendarDays size={18} />, label: 'Agenda unificada', href: '/admin/agenda', permission: 'agenda.view' },
     ],
   },
   {
-    id: 'padel',
+    id: 'deporte',
     label: 'Pádel & Sport',
     icon: <CircleDot size={16} />,
-    staffVisible: true,
     items: [
-      { icon: <Calendar size={18} />, label: 'Reservas', href: '/admin/reservas' },
-      { icon: <Users size={18} />, label: 'Jugadores', href: '/admin/jugadores' },
-      { icon: <Trophy size={18} />, label: 'Torneos', href: '/admin/torneos' },
-      { icon: <Medal size={18} />, label: 'Ligas', href: '/admin/ligas' },
+      { icon: <Calendar size={18} />, label: 'Reservas', href: '/admin/reservas', permission: 'padel.reservas' },
+      { icon: <Activity size={18} />, label: 'Pistas', href: '/admin/pistas', permission: 'courts.manage' },
+      { icon: <Trophy size={18} />, label: 'Torneos', href: '/admin/torneos', permission: 'tournaments.manage' },
+      { icon: <Medal size={18} />, label: 'Ligas', href: '/admin/ligas', permission: 'leagues.manage' },
+      { icon: <Users size={18} />, label: 'Jugadores', href: '/admin/jugadores', permission: 'ranking.view' },
     ],
   },
   {
     id: 'gym',
-    label: 'Gimnasio',
+    label: 'Gimnasio & Wellness',
     icon: <Dumbbell size={16} />,
-    staffVisible: true,
     items: [
-      { icon: <Dumbbell size={18} />, label: 'Clases & Gym', href: '/admin/gimnasio' },
-      { icon: <ClipboardList size={18} />, label: 'Entrenamiento', href: '/admin/entrenamiento' },
-      { icon: <Droplets size={18} />, label: 'Recuperación', href: '/admin/recuperacion' },
-      { icon: <DoorOpen size={18} />, label: 'Control Acceso', href: '/admin/accesos' },
+      { icon: <Dumbbell size={18} />, label: 'Clases & asistencias', href: '/admin/gimnasio/clases', permission: 'gym.classes' },
+      { icon: <ClipboardList size={18} />, label: 'Planes de entrenamiento', href: '/admin/entrenamiento', permission: 'training.manage' },
+      { icon: <Droplets size={18} />, label: 'Recuperación', href: '/admin/recuperacion', permission: 'recovery.manage' },
+      { icon: <CreditCard size={18} />, label: 'Membresías gym', href: '/admin/gimnasio/membresias', permission: 'gym.memberships' },
     ],
   },
   {
-    id: 'comunidad',
-    label: 'Comunidad',
-    icon: <Heart size={16} />,
-    staffVisible: true,
+    id: 'acceso',
+    label: 'Control de acceso',
+    icon: <DoorOpen size={16} />,
     items: [
-      { icon: <MessageSquare size={18} />, label: 'Feed Social', href: '/admin/comunidad' },
-      { icon: <Target size={18} />, label: 'Retos & Badges', href: '/admin/retos' },
+      { icon: <ScanLine size={18} />, label: 'Puntos de acceso', href: '/admin/accesos/puntos', permission: 'access.points' },
+      { icon: <KeyRound size={18} />, label: 'Credenciales', href: '/admin/accesos/credenciales', permission: 'access.credentials' },
+      { icon: <Activity size={18} />, label: 'Registro en vivo', href: '/admin/accesos', permission: 'access.logs' },
+    ],
+  },
+  {
+    id: 'comercial',
+    label: 'Comercial',
+    icon: <Store size={16} />,
+    items: [
+      { icon: <ShoppingBag size={18} />, label: 'Tienda', href: '/admin/tienda', permission: 'shop.manage' },
+      { icon: <Layers size={18} />, label: 'Categorías', href: '/admin/tienda/categorias', permission: 'shop.categories' },
+      { icon: <Boxes size={18} />, label: 'Stock & compras', href: '/admin/tienda/stock', permission: 'shop.stock' },
+      { icon: <Package size={18} />, label: 'Punto de venta', href: '/admin/tienda/pos', permission: 'shop.pos' },
     ],
   },
   {
     id: 'finanzas',
     label: 'Finanzas',
     icon: <Banknote size={16} />,
-    staffVisible: true,
     items: [
-      { icon: <Banknote size={18} />, label: 'Caja', href: '/admin/caja' },
-      { icon: <Receipt size={18} />, label: 'Facturación', href: '/admin/facturacion' },
-      { icon: <CreditCard size={18} />, label: 'Precios', href: '/admin/precios' },
-      { icon: <ShoppingBag size={18} />, label: 'Tienda', href: '/admin/tienda' },
+      { icon: <Banknote size={18} />, label: 'Caja', href: '/admin/caja', permission: 'cash.manage' },
+      { icon: <Receipt size={18} />, label: 'Facturación', href: '/admin/facturacion', permission: 'billing.manage' },
+      { icon: <CreditCard size={18} />, label: 'Suscripciones', href: '/admin/suscripciones', permission: 'subscriptions.manage' },
+      { icon: <Shuffle size={18} />, label: 'Conciliación', href: '/admin/conciliacion', permission: 'finance.reconcile' },
     ],
   },
   {
-    id: 'admin',
-    label: 'Administración',
-    icon: <Settings size={16} />,
-    staffVisible: false,
+    id: 'pricing',
+    label: 'Pricing',
+    icon: <Tag size={16} />,
     items: [
-      { icon: <Users size={18} />, label: 'Usuarios', href: '/admin/usuarios' },
-      { icon: <UserCog size={18} />, label: 'Staff', href: '/admin/staff' },
-      { icon: <Activity size={18} />, label: 'Pistas', href: '/admin/pistas' },
-      { icon: <BarChart3 size={18} />, label: 'Reportes', href: '/admin/reportes' },
-      { icon: <Lightbulb size={18} />, label: 'Innovación', href: '/admin/innovacion' },
-      { icon: <Settings size={18} />, label: 'Configuración', href: '/admin/config' },
+      { icon: <Tag size={18} />, label: 'Reglas de precio', href: '/admin/pricing', permission: 'pricing.manage' },
+    ],
+  },
+  {
+    id: 'personas',
+    label: 'Personas',
+    icon: <Users size={16} />,
+    items: [
+      { icon: <Users size={18} />, label: 'Usuarios', href: '/admin/usuarios', permission: 'users.manage' },
+      { icon: <UserCheck size={18} />, label: 'Miembros del club', href: '/admin/miembros', permission: 'members.manage' },
+      { icon: <UserCog size={18} />, label: 'Staff & turnos', href: '/admin/staff', permission: 'staff.manage' },
+      { icon: <GraduationCap size={18} />, label: 'Entrenadores', href: '/admin/entrenadores', permission: 'coaches.manage' },
+    ],
+  },
+  {
+    id: 'comunidad',
+    label: 'Comunidad',
+    icon: <MessageSquare size={16} />,
+    items: [
+      { icon: <MessageSquare size={18} />, label: 'Feed', href: '/admin/feed', permission: 'community.feed' },
+      { icon: <Target size={18} />, label: 'Retos & badges', href: '/admin/retos', permission: 'community.challenges' },
+    ],
+  },
+  {
+    id: 'reportes',
+    label: 'Reportes',
+    icon: <BarChart3 size={16} />,
+    items: [
+      { icon: <Activity size={18} />, label: 'Operativos', href: '/admin/reportes/operativo', permission: 'reports.operational' },
+      { icon: <BarChart3 size={18} />, label: 'Financieros', href: '/admin/reportes/financiero', permission: 'reports.financial' },
+    ],
+  },
+  {
+    id: 'config',
+    label: 'Configuración',
+    icon: <Settings size={16} />,
+    items: [
+      { icon: <Settings size={18} />, label: 'Club', href: '/admin/config', permission: 'config.club' },
+      { icon: <Layers size={18} />, label: 'Módulos activos', href: '/admin/config/modulos', permission: 'config.modules' },
+      { icon: <ShieldCheck size={18} />, label: 'Roles & permisos', href: '/admin/config/roles', permission: 'config.roles' },
+      { icon: <Plug size={18} />, label: 'Integraciones', href: '/admin/config/integraciones', permission: 'config.integrations' },
+      { icon: <FileText size={18} />, label: 'Auditoría', href: '/admin/config/auditoria', permission: 'config.audit' },
+      { icon: <Lightbulb size={18} />, label: 'Innovación', href: '/admin/innovacion' }, // sin permiso: siempre visible a admins
     ],
   },
 ]
@@ -171,23 +220,27 @@ interface SidebarProps {
   onLogout?: () => void
 }
 
-export function Sidebar({ isAdmin, memberRole, user, onLogout }: SidebarProps) {
+export function Sidebar({ isAdmin, user, onLogout }: SidebarProps) {
   const pathname = usePathname()
   const [collapsed, setCollapsed] = useState(false)
   const [mobileOpen, setMobileOpen] = useState(false)
   const [openSections, setOpenSections] = useState<Set<string>>(new Set())
+  const { can, loading: permLoading } = usePermissions()
 
-  // Determine which groups to show
+  // Filtrar items por permiso (solo admin side)
   let groups: NavGroup[]
   if (!isAdmin) {
     groups = playerGroups
-  } else if (memberRole === 'staff') {
-    groups = adminGroups.filter(g => g.staffVisible)
   } else {
     groups = adminGroups
+      .map(g => ({
+        ...g,
+        items: g.items.filter(it => !it.permission || can(it.permission)),
+      }))
+      .filter(g => g.items.length > 0)
   }
 
-  // Auto-open the section that contains the current path
+  // Auto-abrir la sección activa
   useEffect(() => {
     for (const group of groups) {
       const hasActive = group.items.some(item =>
@@ -227,6 +280,9 @@ export function Sidebar({ isAdmin, memberRole, user, onLogout }: SidebarProps) {
 
       {/* Grouped nav */}
       <nav className="flex-1 overflow-y-auto py-2 px-2">
+        {isAdmin && permLoading && (
+          <div className="px-3 py-2 text-[11px] text-slate-500">Cargando permisos…</div>
+        )}
         {groups.map((group) => {
           const isOpen = openSections.has(group.id)
           const hasActive = group.items.some(item =>
@@ -234,7 +290,7 @@ export function Sidebar({ isAdmin, memberRole, user, onLogout }: SidebarProps) {
             (item.href !== '/dashboard' && item.href !== '/admin' && pathname.startsWith(item.href))
           )
 
-          // If only 1 item (like Dashboard), render directly without group header
+          // Single-item grupo → render directo
           if (group.items.length === 1) {
             const item = group.items[0]
             const active = pathname === item.href
@@ -258,15 +314,12 @@ export function Sidebar({ isAdmin, memberRole, user, onLogout }: SidebarProps) {
 
           return (
             <div key={group.id} className="mb-1">
-              {/* Group header */}
               {!collapsed ? (
                 <button
                   onClick={() => toggleSection(group.id)}
                   className={cn(
                     'w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-semibold uppercase tracking-wider transition-colors',
-                    hasActive
-                      ? 'text-cyan-400'
-                      : 'text-slate-500 hover:text-slate-300'
+                    hasActive ? 'text-cyan-400' : 'text-slate-500 hover:text-slate-300'
                   )}
                 >
                   <div className="flex items-center gap-2">
@@ -280,14 +333,10 @@ export function Sidebar({ isAdmin, memberRole, user, onLogout }: SidebarProps) {
                 </button>
               ) : (
                 <div className="flex justify-center py-2">
-                  <div className={cn(
-                    'w-6 h-[1px]',
-                    hasActive ? 'bg-cyan-500/50' : 'bg-slate-700/50'
-                  )} />
+                  <div className={cn('w-6 h-[1px]', hasActive ? 'bg-cyan-500/50' : 'bg-slate-700/50')} />
                 </div>
               )}
 
-              {/* Group items */}
               {(isOpen || collapsed) && (
                 <div className={cn(!collapsed && 'ml-1 mb-2')}>
                   {group.items.map(item => {
@@ -348,7 +397,6 @@ export function Sidebar({ isAdmin, memberRole, user, onLogout }: SidebarProps) {
 
   return (
     <>
-      {/* Mobile toggle */}
       <button
         onClick={() => setMobileOpen(true)}
         className="fixed top-4 left-4 z-50 lg:hidden bg-slate-800 border border-slate-700 rounded-lg p-2 text-slate-400"
@@ -356,7 +404,6 @@ export function Sidebar({ isAdmin, memberRole, user, onLogout }: SidebarProps) {
         <Menu size={20} />
       </button>
 
-      {/* Mobile overlay */}
       {mobileOpen && (
         <div className="fixed inset-0 z-40 lg:hidden">
           <div className="fixed inset-0 bg-black/60" onClick={() => setMobileOpen(false)} />
@@ -372,7 +419,6 @@ export function Sidebar({ isAdmin, memberRole, user, onLogout }: SidebarProps) {
         </div>
       )}
 
-      {/* Desktop sidebar */}
       <aside className={cn(
         'hidden lg:flex flex-col h-screen bg-slate-900 border-r border-slate-700/50 sticky top-0 transition-all duration-200',
         collapsed ? 'w-16' : 'w-60'
