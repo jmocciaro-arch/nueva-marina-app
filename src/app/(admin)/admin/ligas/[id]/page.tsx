@@ -45,6 +45,16 @@ interface Team {
   player1_name: string
   player2_name: string
   player3_name: string | null
+  player1_id: string | null
+  player2_id: string | null
+  player3_id: string | null
+}
+interface UserOption {
+  id: string
+  full_name: string | null
+  email: string
+  avatar_url: string | null
+  profile_completed_at: string | null
 }
 interface Round {
   id: number
@@ -95,6 +105,12 @@ export default function LigaDetallePage() {
   const [roundDate, setRoundDate] = useState('')
   const [savingRound, setSavingRound] = useState(false)
 
+  // Link player modal
+  const [linking, setLinking] = useState<{ team: Team; slot: 1 | 2 | 3 } | null>(null)
+  const [linkSearch, setLinkSearch] = useState('')
+  const [users, setUsers] = useState<UserOption[]>([])
+  const [savingLink, setSavingLink] = useState(false)
+
   const load = useCallback(async () => {
     setLoading(true)
     const supabase = createClient()
@@ -123,6 +139,36 @@ export default function LigaDetallePage() {
   }, [leagueId, toast, router, activeCategoryId])
 
   useEffect(() => { load() }, [load])
+
+  // Cargar lista de usuarios para el selector de vincular
+  useEffect(() => {
+    const supabase = createClient()
+    supabase.from('nm_users')
+      .select('id, full_name, email, avatar_url, profile_completed_at')
+      .eq('is_active', true)
+      .order('full_name', { ascending: true })
+      .then(({ data }) => setUsers((data ?? []) as UserOption[]))
+  }, [])
+
+  async function linkPlayer(userId: string | null) {
+    if (!linking) return
+    setSavingLink(true)
+    const supabase = createClient()
+    const update: Record<string, unknown> = {}
+    update[`player${linking.slot}_id`] = userId
+    // Si estamos vinculando y tenemos full_name, lo usamos como nombre
+    if (userId) {
+      const u = users.find(x => x.id === userId)
+      if (u?.full_name) update[`player${linking.slot}_name`] = u.full_name
+    }
+    const { error } = await supabase.from('nm_league_teams').update(update).eq('id', linking.team.id)
+    if (error) { toast('error', error.message); setSavingLink(false); return }
+    toast('success', userId ? 'Jugador vinculado' : 'Vínculo quitado')
+    setLinking(null)
+    setLinkSearch('')
+    setSavingLink(false)
+    load()
+  }
 
   // Auto-refresh en vivo sobre todas las tablas de la liga
   useRealtimeRefresh(
@@ -317,14 +363,52 @@ export default function LigaDetallePage() {
                 <h2 className="text-sm font-semibold text-white mb-3 flex items-center gap-2">
                   <Users size={16} className="text-cyan-400" /> Equipos
                   <Badge variant="cyan">{catTeams.length}</Badge>
+                  {(() => {
+                    const linked = catTeams.reduce((acc, t) => acc + [t.player1_id, t.player2_id, t.player3_id].filter(Boolean).length, 0)
+                    const total = catTeams.reduce((acc, t) => acc + [t.player1_name, t.player2_name, t.player3_name].filter(Boolean).length, 0)
+                    return <Badge variant={linked === total ? 'success' : 'warning'}>{linked}/{total} vinculados</Badge>
+                  })()}
                   <span className="text-xs text-slate-500 ml-auto">{genderLabel[cat.gender] ?? cat.gender}</span>
                 </h2>
-                <div className="space-y-1.5 max-h-96 overflow-y-auto pr-1">
+                <div className="space-y-2 max-h-[28rem] overflow-y-auto pr-1">
                   {catTeams.map(t => (
                     <div key={t.id} className="rounded-lg bg-slate-800/50 p-2 text-xs">
-                      <div className="font-medium text-white">{t.team_name ?? '(sin nombre)'}</div>
-                      <div className="text-slate-400 mt-0.5">
-                        {[t.player1_name, t.player2_name, t.player3_name].filter(Boolean).join(' · ')}
+                      <div className="font-medium text-white mb-1">{t.team_name ?? '(sin nombre)'}</div>
+                      <div className="space-y-1">
+                        {([1, 2, 3] as const).map(slot => {
+                          const name = slot === 1 ? t.player1_name : slot === 2 ? t.player2_name : t.player3_name
+                          const linkedId = slot === 1 ? t.player1_id : slot === 2 ? t.player2_id : t.player3_id
+                          if (!name) return null
+                          const u = linkedId ? users.find(x => x.id === linkedId) : null
+                          return (
+                            <button
+                              key={slot}
+                              onClick={() => { setLinking({ team: t, slot }); setLinkSearch(name ?? '') }}
+                              className={`w-full flex items-center gap-2 p-1.5 rounded text-left hover:bg-slate-700/50 transition-colors ${
+                                linkedId ? 'border border-green-500/30 bg-green-500/5' : 'border border-amber-500/20'
+                              }`}
+                            >
+                              <div className="w-7 h-7 rounded-full bg-slate-700 flex items-center justify-center shrink-0 overflow-hidden">
+                                {u?.avatar_url ? (
+                                  // eslint-disable-next-line @next/next/no-img-element
+                                  <img src={u.avatar_url} alt="" className="w-full h-full object-cover" />
+                                ) : (
+                                  <span className="text-[10px] text-slate-400">{name.charAt(0)}</span>
+                                )}
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <div className="text-slate-200 truncate">{u?.full_name ?? name}</div>
+                                {u ? (
+                                  <div className="text-[10px] text-green-400 flex items-center gap-1">
+                                    ✓ Vinculado {u.profile_completed_at ? '· ficha ok' : '· ficha pendiente'}
+                                  </div>
+                                ) : (
+                                  <div className="text-[10px] text-amber-400">Sin vincular · tocá para buscar</div>
+                                )}
+                              </div>
+                            </button>
+                          )
+                        })}
                       </div>
                     </div>
                   ))}
@@ -389,6 +473,63 @@ export default function LigaDetallePage() {
             )
           })}
         </>
+      )}
+
+      {/* Modal vincular jugador */}
+      {linking && (
+        <Modal open={!!linking} onClose={() => { setLinking(null); setLinkSearch('') }} title={`Vincular jugador — ${linking.team.team_name ?? '(sin nombre)'}`}>
+          <div className="space-y-3">
+            <p className="text-xs text-slate-400">
+              Nombre en Excel: <strong className="text-white">
+                {linking.slot === 1 ? linking.team.player1_name : linking.slot === 2 ? linking.team.player2_name : linking.team.player3_name}
+              </strong>
+            </p>
+            <Input
+              placeholder="Buscar por nombre o email..."
+              value={linkSearch}
+              onChange={e => setLinkSearch(e.target.value)}
+              autoFocus
+            />
+            <div className="max-h-80 overflow-y-auto space-y-1 border border-slate-700/50 rounded-lg p-1">
+              {(() => {
+                const q = linkSearch.trim().toLowerCase()
+                const filtered = q
+                  ? users.filter(u =>
+                      (u.full_name?.toLowerCase().includes(q) ?? false) ||
+                      u.email.toLowerCase().includes(q)
+                    )
+                  : users.slice(0, 50)
+                if (filtered.length === 0) return <p className="text-xs text-slate-500 p-3 text-center">Sin resultados</p>
+                return filtered.map(u => (
+                  <button
+                    key={u.id}
+                    onClick={() => linkPlayer(u.id)}
+                    disabled={savingLink}
+                    className="w-full flex items-center gap-2 p-2 rounded hover:bg-slate-700/50 text-left transition-colors disabled:opacity-50"
+                  >
+                    <div className="w-8 h-8 rounded-full bg-slate-700 flex items-center justify-center overflow-hidden shrink-0">
+                      {u.avatar_url ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={u.avatar_url} alt="" className="w-full h-full object-cover" />
+                      ) : <span className="text-xs text-slate-400">{(u.full_name ?? u.email).charAt(0).toUpperCase()}</span>}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm text-white truncate">{u.full_name ?? '(sin nombre)'}</div>
+                      <div className="text-xs text-slate-500 truncate">{u.email}</div>
+                    </div>
+                    {u.profile_completed_at && <Badge variant="success">Ficha ok</Badge>}
+                  </button>
+                ))
+              })()}
+            </div>
+            <div className="flex gap-2 justify-between pt-2">
+              <Button variant="ghost" onClick={() => linkPlayer(null)} disabled={savingLink} className="text-red-400">
+                Quitar vínculo
+              </Button>
+              <Button variant="ghost" onClick={() => { setLinking(null); setLinkSearch('') }} disabled={savingLink}>Cancelar</Button>
+            </div>
+          </div>
+        </Modal>
       )}
 
       {/* Modal resultado */}
