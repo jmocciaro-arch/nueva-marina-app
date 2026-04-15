@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { useParams, useRouter } from 'next/navigation'
 import {
   ArrowLeft, Trophy, Users, CalendarDays, Save, Loader2,
-  Pencil, Layers, ListOrdered, Medal, Download, Upload,
+  Pencil, Layers, ListOrdered, Medal, Download, Upload, Share2, Copy, ExternalLink,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useRealtimeRefresh } from '@/hooks/use-realtime-refresh'
@@ -117,6 +117,9 @@ export default function LigaDetallePage() {
   const [creatingNew, setCreatingNew] = useState(false)
   const [newUserForm, setNewUserForm] = useState({ full_name: '', email: '', phone: '', password: '' })
   const [savingNewUser, setSavingNewUser] = useState(false)
+
+  // Compartir link público
+  const [sharingPublic, setSharingPublic] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -398,7 +401,13 @@ export default function LigaDetallePage() {
             {league.end_date && ` → ${formatDate(league.end_date)}`}
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          <button
+            onClick={() => setSharingPublic(true)}
+            className="flex items-center gap-1 px-3 py-2 text-xs rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white transition-colors"
+          >
+            <Share2 size={14} /> Compartir link público
+          </button>
           <a
             href={`/api/ligas/${league.id}/export`}
             className="flex items-center gap-1 px-3 py-2 text-xs rounded-lg bg-slate-700 hover:bg-slate-600 text-white transition-colors"
@@ -651,6 +660,70 @@ export default function LigaDetallePage() {
             </p>
             <div className="flex justify-end">
               <Button onClick={() => setAutoLinkReport(null)}>Entendido</Button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* Modal compartir link público */}
+      {sharingPublic && (
+        <Modal open={sharingPublic} onClose={() => setSharingPublic(false)} title="Compartir liga — link público">
+          <div className="space-y-3">
+            <p className="text-xs text-slate-400">
+              Este es el link público de la liga. Podés compartirlo por WhatsApp, email o redes.
+              Los jugadores que <strong>no autorizaron</strong> publicar sus datos aparecen como
+              <em className="mx-1 text-cyan-300">&quot;Jugador N&quot;</em> (cumplimiento RGPD/LOPDGDD).
+            </p>
+            {(() => {
+              const publicUrl = typeof window !== 'undefined' ? `${window.location.origin}/liga/${league.id}` : `/liga/${league.id}`
+              const waText = encodeURIComponent(`Mirá la liga "${league.name}" acá: ${publicUrl}`)
+              const mailSubj = encodeURIComponent(`Liga ${league.name}`)
+              const mailBody = encodeURIComponent(`Hola,\n\nCompartimos el link público de la liga ${league.name}:\n${publicUrl}\n\nSaludos.`)
+              return (
+                <>
+                  <div className="flex items-center gap-2 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2">
+                    <code className="flex-1 text-xs text-cyan-300 truncate">{publicUrl}</code>
+                    <button
+                      onClick={() => {
+                        navigator.clipboard.writeText(publicUrl)
+                        toast('success', 'Link copiado')
+                      }}
+                      className="p-1.5 rounded hover:bg-slate-700 text-slate-300"
+                      title="Copiar"
+                    >
+                      <Copy size={14} />
+                    </button>
+                    <a
+                      href={publicUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="p-1.5 rounded hover:bg-slate-700 text-slate-300"
+                      title="Abrir"
+                    >
+                      <ExternalLink size={14} />
+                    </a>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <a
+                      href={`https://wa.me/?text=${waText}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center justify-center gap-2 px-3 py-2 text-sm rounded-lg bg-green-600 hover:bg-green-500 text-white"
+                    >
+                      WhatsApp
+                    </a>
+                    <a
+                      href={`mailto:?subject=${mailSubj}&body=${mailBody}`}
+                      className="flex items-center justify-center gap-2 px-3 py-2 text-sm rounded-lg bg-slate-700 hover:bg-slate-600 text-white"
+                    >
+                      Email
+                    </a>
+                  </div>
+                </>
+              )
+            })()}
+            <div className="flex justify-end pt-2">
+              <Button variant="ghost" onClick={() => setSharingPublic(false)}>Cerrar</Button>
             </div>
           </div>
         </Modal>
