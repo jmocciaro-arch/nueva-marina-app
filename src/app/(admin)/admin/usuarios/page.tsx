@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -61,6 +61,15 @@ interface NmUser {
   notes: string | null
   dni: string | null
   current_weight: number | null
+  avatar_url: string | null
+  birth_date: string | null
+  dni_nie: string | null
+  padel_position: 'drive' | 'reves' | 'ambos' | null
+  padel_level: string | null
+  consent_image_use: boolean | null
+  consent_data_public: boolean | null
+  consent_accepted_at: string | null
+  profile_completed_at: string | null
 }
 
 interface ClubMember {
@@ -164,8 +173,15 @@ export default function GestionUsuariosPage() {
     document_type: '', document_number: '', address: '', postal_code: '',
     emergency_contact: '', medical_notes: '', notes: '',
     dni: '', current_weight: '',
+    birth_date: '', dni_nie: '', padel_position: '' as '' | 'drive' | 'reves' | 'ambos', padel_level: '',
+    consent_image_use: null as boolean | null,
+    consent_data_public: null as boolean | null,
+    avatar_url: null as string | null,
+    avatar_base64: null as string | null,
   })
   const [editUserId, setEditUserId] = useState('')
+  const [editConsentAcceptedAt, setEditConsentAcceptedAt] = useState<string | null>(null)
+  const editFileRef = useRef<HTMLInputElement | null>(null)
 
   // ─────────────────────────────────────────────────────────────
   // Carga de datos
@@ -174,7 +190,7 @@ export default function GestionUsuariosPage() {
     setLoading(true)
     const supabase = createClient()
     const [usersRes, membersRes] = await Promise.all([
-      supabase.from('nm_users').select('id, full_name, email, phone, country, city, is_active, last_login_at, created_at, emergency_contact, medical_notes, document_type, document_number, address, postal_code, iban, virtuagym_id, notes, dni, current_weight').order('created_at', { ascending: false }),
+      supabase.from('nm_users').select('id, full_name, email, phone, country, city, is_active, last_login_at, created_at, emergency_contact, medical_notes, document_type, document_number, address, postal_code, iban, virtuagym_id, notes, dni, current_weight, avatar_url, birth_date, dni_nie, padel_position, padel_level, consent_image_use, consent_data_public, consent_accepted_at, profile_completed_at').order('created_at', { ascending: false }),
       supabase.from('nm_club_members').select('user_id, role').eq('club_id', 1).eq('is_active', true),
     ])
     setUsers((usersRes.data ?? []) as NmUser[])
@@ -295,18 +311,39 @@ export default function GestionUsuariosPage() {
       notes: user.notes || '',
       dni: user.dni || '',
       current_weight: user.current_weight?.toString() || '',
+      birth_date: user.birth_date || '',
+      dni_nie: user.dni_nie || '',
+      padel_position: (user.padel_position as '' | 'drive' | 'reves' | 'ambos') || '',
+      padel_level: user.padel_level || '',
+      consent_image_use: user.consent_image_use,
+      consent_data_public: user.consent_data_public,
+      avatar_url: user.avatar_url,
+      avatar_base64: null,
     })
+    setEditConsentAcceptedAt(user.consent_accepted_at)
     setDetailUser(null)
     setEditOpen(true)
+  }
+
+  async function onPickEditAvatar(e: React.ChangeEvent<HTMLInputElement>) {
+    const f = e.target.files?.[0]
+    if (!f) return
+    if (f.size > 8 * 1024 * 1024) { toast('warning', 'Foto demasiado grande (máx 8MB)'); return }
+    const dataUrl = await resizeImageFile(f, 720)
+    setEditForm(prev => ({ ...prev, avatar_base64: dataUrl, avatar_url: dataUrl }))
   }
 
   async function handleEdit(e: React.FormEvent) {
     e.preventDefault()
     setEditing(true)
+    // Si no se seleccionó foto nueva pero se quitó, mandamos avatar_url=null
+    const payload: Record<string, unknown> = { user_id: editUserId, ...editForm }
+    // Si avatar_base64 viene seteado, lo mandamos para que el backend haga upload; si es null y editForm.avatar_url es una URL remota, no tocamos
+    if (!editForm.avatar_base64) delete payload.avatar_base64
     const res = await fetch('/api/users', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ user_id: editUserId, ...editForm }),
+      body: JSON.stringify(payload),
     })
     const data = await res.json()
     if (!res.ok) {
@@ -661,12 +698,27 @@ export default function GestionUsuariosPage() {
               <p className="text-xs font-medium text-cyan-400 uppercase flex items-center gap-1.5">
                 <FileText size={12} /> Ficha de jugador
               </p>
-              <p className="text-xs text-slate-500">
-                Generá un link para que el jugador complete foto, DNI, datos y consentimientos desde el celu.
-                El link caduca en 30 días.
-              </p>
+              {detailUser.profile_completed_at ? (
+                <div className="text-xs space-y-1">
+                  <p className="text-green-400 flex items-center gap-1">
+                    <UserCheck size={12} /> Ficha completada el {formatDateTime(detailUser.profile_completed_at)}
+                  </p>
+                  <div className="flex flex-wrap gap-2 text-[11px] text-slate-400">
+                    <span>Imagen: {detailUser.consent_image_use === true ? '✅ autoriza' : detailUser.consent_image_use === false ? '❌ no autoriza' : '—'}</span>
+                    <span>Datos públicos: {detailUser.consent_data_public === true ? '✅ autoriza' : detailUser.consent_data_public === false ? '❌ no autoriza' : '—'}</span>
+                  </div>
+                  <p className="text-slate-500 pt-1">
+                    Regenerá el link si el jugador tiene que actualizar datos. El link viejo queda inválido apenas complete el nuevo.
+                  </p>
+                </div>
+              ) : (
+                <p className="text-xs text-slate-500">
+                  Generá un link para que el jugador complete foto, DNI, datos y consentimientos desde el celu.
+                  El link caduca en 30 días.
+                </p>
+              )}
               <Button variant="secondary" size="sm" onClick={handlePedirFicha} loading={fichaLoading}>
-                <Send size={13} /> Pedir ficha
+                <Send size={13} /> {detailUser.profile_completed_at ? 'Regenerar link' : 'Pedir ficha'}
               </Button>
             </div>
 
@@ -795,6 +847,38 @@ export default function GestionUsuariosPage() {
         }
       >
         <form onSubmit={handleEdit} className="space-y-4">
+          {/* Avatar */}
+          <div className="flex items-center gap-4 pb-3 border-b border-slate-700/50">
+            <div className="w-20 h-20 rounded-full bg-slate-800 border-2 border-slate-700 overflow-hidden flex items-center justify-center shrink-0">
+              {editForm.avatar_url ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={editForm.avatar_url} alt="" className="w-full h-full object-cover" />
+              ) : (
+                <UserPlus size={24} className="text-slate-500" />
+              )}
+            </div>
+            <div>
+              <input ref={editFileRef} type="file" accept="image/jpeg,image/png,image/webp" onChange={onPickEditAvatar} className="hidden" />
+              <button
+                type="button"
+                onClick={() => editFileRef.current?.click()}
+                className="px-3 py-1.5 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-medium"
+              >
+                {editForm.avatar_url ? 'Cambiar foto' : 'Subir foto'}
+              </button>
+              {editForm.avatar_url && (
+                <button
+                  type="button"
+                  onClick={() => setEditForm(f => ({ ...f, avatar_url: null, avatar_base64: null }))}
+                  className="ml-2 px-3 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-white text-xs"
+                >
+                  Quitar
+                </button>
+              )}
+              <p className="text-[11px] text-slate-500 mt-1">Se redimensiona a 720px · máx 8MB</p>
+            </div>
+          </div>
+
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <FormField label="Nombre completo" value={editForm.full_name} onChange={v => setEditForm(f => ({ ...f, full_name: v }))} />
             <FormField label="Teléfono" value={editForm.phone} onChange={v => setEditForm(f => ({ ...f, phone: v }))} />
@@ -811,17 +895,65 @@ export default function GestionUsuariosPage() {
                 <option value="owner">Propietario</option>
               </select>
             </div>
+            <FormField label="Fecha de nacimiento" type="date" value={editForm.birth_date} onChange={v => setEditForm(f => ({ ...f, birth_date: v }))} />
             <div className="grid grid-cols-2 gap-2">
               <FormField label="Tipo doc." value={editForm.document_type} onChange={v => setEditForm(f => ({ ...f, document_type: v }))} />
               <FormField label="Nro doc." value={editForm.document_number} onChange={v => setEditForm(f => ({ ...f, document_number: v }))} />
             </div>
+            <FormField label="DNI / NIE (España)" value={editForm.dni_nie} onChange={v => setEditForm(f => ({ ...f, dni_nie: v }))} />
             <FormField label="Dirección" value={editForm.address} onChange={v => setEditForm(f => ({ ...f, address: v }))} />
             <FormField label="Código postal" value={editForm.postal_code} onChange={v => setEditForm(f => ({ ...f, postal_code: v }))} />
             <FormField label="Contacto emergencia" value={editForm.emergency_contact} onChange={v => setEditForm(f => ({ ...f, emergency_contact: v }))} />
             <FormField label="Notas médicas" value={editForm.medical_notes} onChange={v => setEditForm(f => ({ ...f, medical_notes: v }))} />
-            <FormField label="DNI / NIE" value={editForm.dni} onChange={v => setEditForm(f => ({ ...f, dni: v }))} />
+            <FormField label="DNI (interno)" value={editForm.dni} onChange={v => setEditForm(f => ({ ...f, dni: v }))} />
             <FormField label="Peso actual (kg)" type="number" value={editForm.current_weight} onChange={v => setEditForm(f => ({ ...f, current_weight: v }))} />
           </div>
+
+          {/* Pádel */}
+          <div className="border-t border-slate-700/50 pt-3 space-y-3">
+            <p className="text-xs font-medium text-cyan-400 uppercase">Pádel</p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs text-slate-400 mb-1">Posición</label>
+                <div className="grid grid-cols-3 gap-1">
+                  {(['drive', 'reves', 'ambos'] as const).map(pos => (
+                    <button
+                      key={pos}
+                      type="button"
+                      onClick={() => setEditForm(f => ({ ...f, padel_position: f.padel_position === pos ? '' : pos }))}
+                      className={`py-1.5 rounded text-xs font-medium border ${
+                        editForm.padel_position === pos ? 'bg-cyan-600 border-cyan-500 text-white' : 'bg-slate-800 border-slate-700 text-slate-300'
+                      }`}
+                    >
+                      {pos === 'drive' ? 'Drive' : pos === 'reves' ? 'Revés' : 'Ambos'}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <FormField label="Nivel / categoría" value={editForm.padel_level} onChange={v => setEditForm(f => ({ ...f, padel_level: v }))} />
+            </div>
+          </div>
+
+          {/* Consentimientos GDPR */}
+          <div className="border-t border-slate-700/50 pt-3 space-y-3">
+            <p className="text-xs font-medium text-cyan-400 uppercase flex items-center gap-1.5">
+              <Shield size={12} /> Consentimientos (RGPD / LOPDGDD)
+            </p>
+            <ConsentEditToggle
+              title="Uso de imagen"
+              value={editForm.consent_image_use}
+              onChange={v => setEditForm(f => ({ ...f, consent_image_use: v }))}
+            />
+            <ConsentEditToggle
+              title="Datos públicos (nombre + categoría en rankings)"
+              value={editForm.consent_data_public}
+              onChange={v => setEditForm(f => ({ ...f, consent_data_public: v }))}
+            />
+            {editConsentAcceptedAt && (
+              <p className="text-[11px] text-slate-500">Última firma del jugador: {formatDateTime(editConsentAcceptedAt)}</p>
+            )}
+          </div>
+
           <FormField label="Notas internas" value={editForm.notes} onChange={v => setEditForm(f => ({ ...f, notes: v }))} />
         </form>
       </Modal>
@@ -995,4 +1127,42 @@ function FormField({ label, value, onChange, placeholder, type = 'text' }: { lab
       />
     </div>
   )
+}
+
+function ConsentEditToggle({ title, value, onChange }: { title: string; value: boolean | null; onChange: (v: boolean | null) => void }) {
+  return (
+    <div className="rounded-lg border border-slate-700 bg-slate-800/30 p-2 flex items-center justify-between gap-2">
+      <span className="text-xs text-slate-300">{title}</span>
+      <div className="flex gap-1">
+        <button type="button" onClick={() => onChange(true)} className={`px-2 py-1 rounded text-xs border ${value === true ? 'bg-green-600 border-green-500 text-white' : 'bg-slate-800 border-slate-700 text-slate-400'}`}>Sí</button>
+        <button type="button" onClick={() => onChange(false)} className={`px-2 py-1 rounded text-xs border ${value === false ? 'bg-red-600 border-red-500 text-white' : 'bg-slate-800 border-slate-700 text-slate-400'}`}>No</button>
+        <button type="button" onClick={() => onChange(null)} className={`px-2 py-1 rounded text-xs border ${value === null ? 'bg-slate-600 border-slate-500 text-white' : 'bg-slate-800 border-slate-700 text-slate-400'}`}>—</button>
+      </div>
+    </div>
+  )
+}
+
+// Redimensiona un File a maxSide px y devuelve data URL JPEG
+async function resizeImageFile(file: File, maxSide: number): Promise<string> {
+  const dataUrl = await new Promise<string>((resolve, reject) => {
+    const r = new FileReader()
+    r.onload = () => resolve(r.result as string)
+    r.onerror = reject
+    r.readAsDataURL(file)
+  })
+  const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+    const i = new Image()
+    i.onload = () => resolve(i)
+    i.onerror = reject
+    i.src = dataUrl
+  })
+  let w = img.width, h = img.height
+  if (w > maxSide || h > maxSide) {
+    if (w > h) { h = Math.round((h * maxSide) / w); w = maxSide }
+    else { w = Math.round((w * maxSide) / h); h = maxSide }
+  }
+  const canvas = document.createElement('canvas')
+  canvas.width = w; canvas.height = h
+  canvas.getContext('2d')!.drawImage(img, 0, 0, w, h)
+  return canvas.toDataURL('image/jpeg', 0.85)
 }

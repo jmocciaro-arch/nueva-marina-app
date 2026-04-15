@@ -110,15 +110,27 @@ export async function PATCH(request: Request) {
     .eq('is_active', true)
     .single()
 
-  if (!callerMember || !['owner', 'admin'].includes(callerMember.role)) {
-    return NextResponse.json({ error: 'Sin permisos' }, { status: 403 })
-  }
-
   const body = await request.json()
-  const { user_id, role, full_name, phone, document_type, document_number, address, postal_code, emergency_contact, medical_notes, notes, dni, current_weight, injuries } = body
+  const {
+    user_id, role, full_name, phone, document_type, document_number, address, postal_code,
+    emergency_contact, medical_notes, notes, dni, current_weight, injuries,
+    birth_date, dni_nie, padel_position, padel_level,
+    consent_image_use, consent_data_public,
+    avatar_base64, avatar_url,
+  } = body
 
   if (!user_id) {
     return NextResponse.json({ error: 'Falta user_id' }, { status: 400 })
+  }
+
+  const isAdmin = !!callerMember && ['owner', 'admin'].includes(callerMember.role)
+  const isSelf = user.id === user_id
+  if (!isAdmin && !isSelf) {
+    return NextResponse.json({ error: 'Sin permisos' }, { status: 403 })
+  }
+  // Solo admin puede cambiar rol
+  if (role && !isAdmin) {
+    return NextResponse.json({ error: 'No podés cambiar tu rol' }, { status: 403 })
   }
 
   const adminClient = createServiceRoleClient()
@@ -137,6 +149,33 @@ export async function PATCH(request: Request) {
   if (dni !== undefined) profileUpdates.dni = dni
   if (current_weight !== undefined) profileUpdates.current_weight = current_weight === null || current_weight === '' ? null : Number(current_weight)
   if (injuries !== undefined) profileUpdates.injuries = Array.isArray(injuries) ? injuries : []
+  if (birth_date !== undefined) profileUpdates.birth_date = birth_date || null
+  if (dni_nie !== undefined) profileUpdates.dni_nie = dni_nie || null
+  if (padel_position !== undefined) profileUpdates.padel_position = padel_position || null
+  if (padel_level !== undefined) profileUpdates.padel_level = padel_level || null
+  if (consent_image_use !== undefined) profileUpdates.consent_image_use = consent_image_use
+  if (consent_data_public !== undefined) profileUpdates.consent_data_public = consent_data_public
+  if (avatar_url !== undefined) profileUpdates.avatar_url = avatar_url
+
+  // Avatar upload (base64 data URL)
+  if (avatar_base64 && typeof avatar_base64 === 'string' && avatar_base64.startsWith('data:image/')) {
+    const match = /^data:(image\/(?:jpeg|jpg|png|webp));base64,(.+)$/.exec(avatar_base64)
+    if (match) {
+      const mime = match[1]
+      const ext = mime.includes('png') ? 'png' : mime.includes('webp') ? 'webp' : 'jpg'
+      const buf = Buffer.from(match[2], 'base64')
+      if (buf.byteLength > 5 * 1024 * 1024) {
+        return NextResponse.json({ error: 'La foto pesa más de 5MB' }, { status: 400 })
+      }
+      const path = `${user_id}/${Date.now()}.${ext}`
+      const { error: upErr } = await adminClient.storage.from('avatars').upload(path, buf, { contentType: mime, upsert: true })
+      if (upErr) {
+        return NextResponse.json({ error: 'Error subiendo foto: ' + upErr.message }, { status: 500 })
+      }
+      const { data: pub } = adminClient.storage.from('avatars').getPublicUrl(path)
+      profileUpdates.avatar_url = pub.publicUrl
+    }
+  }
 
   if (Object.keys(profileUpdates).length > 0) {
     const { error } = await adminClient.from('nm_users').update(profileUpdates).eq('id', user_id)

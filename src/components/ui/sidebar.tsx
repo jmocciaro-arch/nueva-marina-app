@@ -82,6 +82,7 @@ const playerGroups: NavGroup[] = [
     label: 'Mi Cuenta',
     icon: <Users size={16} />,
     items: [
+      { icon: <Users size={18} />, label: 'Mi Ficha', href: '/mi-ficha' },
       { icon: <CreditCard size={18} />, label: 'Mi Suscripción', href: '/mi-suscripcion' },
       { icon: <QrCode size={18} />, label: 'Mi Acceso', href: '/mi-acceso' },
       { icon: <ShoppingBag size={18} />, label: 'Tienda', href: '/tienda' },

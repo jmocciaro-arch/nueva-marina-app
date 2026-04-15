@@ -37,6 +37,14 @@ export async function POST(request: Request) {
     .single()
   if (!target) return NextResponse.json({ error: 'Usuario no encontrado' }, { status: 404 })
 
+  // Invalidar tokens pendientes previos del mismo usuario (los no completados vencen ya)
+  await admin
+    .from('nm_profile_requests')
+    .update({ expires_at: new Date().toISOString() })
+    .eq('user_id', user_id)
+    .is('completed_at', null)
+    .gt('expires_at', new Date().toISOString())
+
   // Crear nuevo pedido
   const { data: req, error } = await admin
     .from('nm_profile_requests')
