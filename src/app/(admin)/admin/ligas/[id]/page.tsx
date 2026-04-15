@@ -110,6 +110,8 @@ export default function LigaDetallePage() {
   const [linkSearch, setLinkSearch] = useState('')
   const [users, setUsers] = useState<UserOption[]>([])
   const [savingLink, setSavingLink] = useState(false)
+  const [autoLinking, setAutoLinking] = useState(false)
+  const [autoLinkReport, setAutoLinkReport] = useState<{ linked: number; ambiguous: number; noMatch: number; scope: string } | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -167,6 +169,89 @@ export default function LigaDetallePage() {
     setLinking(null)
     setLinkSearch('')
     setSavingLink(false)
+    load()
+  }
+
+  async function autoLink(scope: 'category' | 'league') {
+    setAutoLinking(true)
+    const supabase = createClient()
+    const teamsToProcess = scope === 'category' ? (cat ? teams.filter(t => t.category_id === cat.id) : []) : teams
+
+    const norm = (s: string) =>
+      s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim()
+
+    // Usuarios ya vinculados en ESTA liga — evitar duplicar
+    const usedIds = new Set<string>()
+    for (const t of teams) {
+      if (t.player1_id) usedIds.add(t.player1_id)
+      if (t.player2_id) usedIds.add(t.player2_id)
+      if (t.player3_id) usedIds.add(t.player3_id)
+    }
+
+    const available = users.filter(u => !usedIds.has(u.id) && u.full_name)
+    const byFirst = new Map<string, UserOption[]>()
+    const byFull = new Map<string, UserOption[]>()
+    for (const u of available) {
+      const nfull = norm(u.full_name!)
+      if (!nfull) continue
+      const first = nfull.split(' ')[0]
+      if (!byFirst.has(first)) byFirst.set(first, [])
+      byFirst.get(first)!.push(u)
+      if (!byFull.has(nfull)) byFull.set(nfull, [])
+      byFull.get(nfull)!.push(u)
+    }
+
+    let linked = 0, ambiguous = 0, noMatch = 0
+
+    for (const t of teamsToProcess) {
+      for (const slot of [1, 2, 3] as const) {
+        const currentId = slot === 1 ? t.player1_id : slot === 2 ? t.player2_id : t.player3_id
+        const name = slot === 1 ? t.player1_name : slot === 2 ? t.player2_name : t.player3_name
+        if (currentId || !name) continue
+
+        const nName = norm(name)
+        if (!nName) { noMatch++; continue }
+
+        // 1) match full exacto
+        let candidates: UserOption[] = byFull.get(nName) ?? []
+        // 2) si el nombre tiene un solo token, match por primer nombre del user
+        if (candidates.length === 0 && !nName.includes(' ')) {
+          candidates = byFirst.get(nName) ?? []
+        }
+        // 3) si el nombre tiene varios tokens, busco users que contengan TODOS los tokens
+        if (candidates.length === 0 && nName.includes(' ')) {
+          const tokens = nName.split(' ')
+          candidates = available.filter(u => {
+            const uTokens = norm(u.full_name!).split(' ')
+            return tokens.every(tok => uTokens.includes(tok))
+          })
+        }
+        // Filtrar los que ya usamos en esta tanda
+        candidates = candidates.filter(u => !usedIds.has(u.id))
+
+        if (candidates.length === 1) {
+          const u = candidates[0]
+          const update: Record<string, unknown> = {}
+          update[`player${slot}_id`] = u.id
+          if (u.full_name) update[`player${slot}_name`] = u.full_name
+          const { error } = await supabase.from('nm_league_teams').update(update).eq('id', t.id)
+          if (!error) {
+            usedIds.add(u.id)
+            linked++
+          } else {
+            noMatch++
+          }
+        } else if (candidates.length > 1) {
+          ambiguous++
+        } else {
+          noMatch++
+        }
+      }
+    }
+
+    setAutoLinkReport({ linked, ambiguous, noMatch, scope: scope === 'category' ? (cat?.name ?? '') : 'toda la liga' })
+    setAutoLinking(false)
     load()
   }
 
@@ -360,7 +445,7 @@ export default function LigaDetallePage() {
 
               {/* Equipos */}
               <Card>
-                <h2 className="text-sm font-semibold text-white mb-3 flex items-center gap-2">
+                <h2 className="text-sm font-semibold text-white mb-3 flex items-center gap-2 flex-wrap">
                   <Users size={16} className="text-cyan-400" /> Equipos
                   <Badge variant="cyan">{catTeams.length}</Badge>
                   {(() => {
@@ -370,6 +455,26 @@ export default function LigaDetallePage() {
                   })()}
                   <span className="text-xs text-slate-500 ml-auto">{genderLabel[cat.gender] ?? cat.gender}</span>
                 </h2>
+                <div className="flex items-center gap-2 mb-3 flex-wrap">
+                  <Button
+                    variant="ghost"
+                    onClick={() => autoLink('category')}
+                    disabled={autoLinking}
+                    className="text-xs flex items-center gap-1"
+                  >
+                    {autoLinking ? <Loader2 size={12} className="animate-spin" /> : <Users size={12} />}
+                    Auto-vincular categoría
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    onClick={() => { if (confirm('Esto intenta vincular jugadores en TODAS las categorías de la liga. ¿Seguir?')) autoLink('league') }}
+                    disabled={autoLinking}
+                    className="text-xs flex items-center gap-1"
+                  >
+                    {autoLinking ? <Loader2 size={12} className="animate-spin" /> : <Users size={12} />}
+                    Auto-vincular toda la liga
+                  </Button>
+                </div>
                 <div className="space-y-2 max-h-[28rem] overflow-y-auto pr-1">
                   {catTeams.map(t => (
                     <div key={t.id} className="rounded-lg bg-slate-800/50 p-2 text-xs">
@@ -473,6 +578,35 @@ export default function LigaDetallePage() {
             )
           })}
         </>
+      )}
+
+      {/* Modal resultado auto-vincular */}
+      {autoLinkReport && (
+        <Modal open={!!autoLinkReport} onClose={() => setAutoLinkReport(null)} title="Auto-vinculación completada">
+          <div className="space-y-3">
+            <p className="text-sm text-slate-400">Alcance: <strong className="text-white">{autoLinkReport.scope}</strong></p>
+            <div className="grid grid-cols-3 gap-2">
+              <div className="bg-green-500/10 border border-green-500/30 rounded-lg p-3 text-center">
+                <div className="text-2xl font-bold text-green-400">{autoLinkReport.linked}</div>
+                <div className="text-xs text-slate-400">vinculados</div>
+              </div>
+              <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-3 text-center">
+                <div className="text-2xl font-bold text-amber-400">{autoLinkReport.ambiguous}</div>
+                <div className="text-xs text-slate-400">con varios matches</div>
+              </div>
+              <div className="bg-slate-500/10 border border-slate-500/30 rounded-lg p-3 text-center">
+                <div className="text-2xl font-bold text-slate-400">{autoLinkReport.noMatch}</div>
+                <div className="text-xs text-slate-400">sin match</div>
+              </div>
+            </div>
+            <p className="text-xs text-slate-500">
+              Los <strong>ambiguos</strong> (varios Antonio, por ejemplo) y <strong>sin match</strong> (jugadores que todavía no existen como usuario) los vinculás a mano tocando el slot del jugador.
+            </p>
+            <div className="flex justify-end">
+              <Button onClick={() => setAutoLinkReport(null)}>Entendido</Button>
+            </div>
+          </div>
+        </Modal>
       )}
 
       {/* Modal vincular jugador */}
