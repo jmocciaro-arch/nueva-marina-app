@@ -11,8 +11,11 @@ import {
   CheckCircle,
   XCircle,
   Activity,
+  Tag,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
+import { lookupPrice } from '@/lib/api/pricing'
+import { useAuth } from '@/lib/auth-context'
 import { KpiCard } from '@/components/ui/kpi-card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -176,6 +179,13 @@ function todayISO() {
 
 export default function GestionGimnasioPage() {
   const { toast } = useToast()
+  const { member } = useAuth()
+
+  // Pricing lookup state (membership + session)
+  const [membershipRule, setMembershipRule] = useState<{ rule_id: number; amount: number; currency: string; name: string } | null>(null)
+  const [membershipRuleLoading, setMembershipRuleLoading] = useState(false)
+  const [sessionRule, setSessionRule] = useState<{ rule_id: number; amount: number; currency: string; name: string } | null>(null)
+  const [sessionRuleLoading, setSessionRuleLoading] = useState(false)
 
   // Tabs
   const [activeTab, setActiveTab] = useState<'membresias' | 'clases' | 'sesiones'>('membresias')
@@ -255,6 +265,57 @@ export default function GestionGimnasioPage() {
     loadAll()
   }, [loadAll])
 
+  // Lookup precio para membresía
+  useEffect(() => {
+    if (!membershipModal) return
+    let cancelled = false
+    setMembershipRuleLoading(true)
+    lookupPrice({
+      club_id: CLUB_ID,
+      scope: 'gym_plan',
+      scope_ref_id: null,
+      at: new Date(membershipForm.start_date + 'T12:00:00').toISOString(),
+      duration_minutes: null,
+      role_slug: member?.role ?? null,
+    })
+      .then(rule => {
+        if (cancelled) return
+        setMembershipRule(rule)
+        if (rule && !membershipForm.price) {
+          setMembershipForm(f => ({ ...f, price: String(rule.amount), billing_cycle: rule.name.toLowerCase().includes('anual') ? 'anual' : f.billing_cycle }))
+        }
+      })
+      .catch(() => { if (!cancelled) setMembershipRule(null) })
+      .finally(() => { if (!cancelled) setMembershipRuleLoading(false) })
+    return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [membershipModal, membershipForm.plan, membershipForm.billing_cycle, membershipForm.start_date, member?.role])
+
+  // Lookup precio para sesión/clase (scope=class)
+  useEffect(() => {
+    if (!sessionModal) return
+    if (sessionForm.type !== 'clase') {
+      // Solo cobramos con regla si es una clase. Libre/personal se manejan con membresía o lógica externa.
+      setSessionRule(null)
+      return
+    }
+    let cancelled = false
+    setSessionRuleLoading(true)
+    lookupPrice({
+      club_id: CLUB_ID,
+      scope: 'class',
+      scope_ref_id: null,
+      at: new Date(sessionForm.check_in).toISOString(),
+      duration_minutes: null,
+      role_slug: member?.role ?? null,
+    })
+      .then(rule => { if (!cancelled) setSessionRule(rule) })
+      .catch(() => { if (!cancelled) setSessionRule(null) })
+      .finally(() => { if (!cancelled) setSessionRuleLoading(false) })
+    return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionModal, sessionForm.type, sessionForm.check_in, member?.role])
+
   // ─── KPIs ─────────────────────────────────────────────────────────────────────
 
   const activeMemberships = memberships.filter(m => m.status === 'active').length
@@ -285,11 +346,28 @@ export default function GestionGimnasioPage() {
     const supabase = createClient()
     setSavingMembership(true)
 
+    // Re-consultar regla al momento del submit
+    let finalRule = membershipRule
+    try {
+      finalRule = await lookupPrice({
+        club_id: CLUB_ID,
+        scope: 'gym_plan',
+        scope_ref_id: null,
+        at: new Date(membershipForm.start_date + 'T12:00:00').toISOString(),
+        duration_minutes: null,
+        role_slug: member?.role ?? null,
+      })
+    } catch {
+      // uso el preview / manual
+    }
+    const finalPrice = finalRule?.amount ?? parseFloat(membershipForm.price)
+
     const { error } = await supabase.from('nm_gym_memberships').insert({
       club_id: CLUB_ID,
       user_id: membershipForm.user_id,
       plan: membershipForm.plan,
-      price: parseFloat(membershipForm.price),
+      price: finalPrice,
+      price_rule_id: finalRule?.rule_id ?? null,
       billing_cycle: membershipForm.billing_cycle,
       start_date: membershipForm.start_date,
       end_date: membershipForm.end_date || null,
@@ -356,6 +434,25 @@ export default function GestionGimnasioPage() {
     const supabase = createClient()
     setSavingSession(true)
 
+    // Si es clase, re-consultar la regla al submit
+    let finalRule = sessionRule
+    if (sessionForm.type === 'clase') {
+      try {
+        finalRule = await lookupPrice({
+          club_id: CLUB_ID,
+          scope: 'class',
+          scope_ref_id: null,
+          at: new Date(sessionForm.check_in).toISOString(),
+          duration_minutes: null,
+          role_slug: member?.role ?? null,
+        })
+      } catch {
+        // ignoro, uso preview
+      }
+    } else {
+      finalRule = null
+    }
+
     const { error } = await supabase.from('nm_gym_sessions').insert({
       club_id: CLUB_ID,
       user_id: sessionForm.user_id,
@@ -363,6 +460,8 @@ export default function GestionGimnasioPage() {
       check_out: null,
       duration_minutes: null,
       type: sessionForm.type,
+      price_amount: finalRule?.amount ?? null,
+      price_rule_id: finalRule?.rule_id ?? null,
     })
 
     if (error) {
@@ -552,6 +651,30 @@ export default function GestionGimnasioPage() {
             checked={membershipForm.auto_renew}
             onChange={v => setMembershipForm(f => ({ ...f, auto_renew: v }))}
           />
+
+          {/* Preview regla aplicada */}
+          <div className="bg-slate-800/50 rounded-lg px-4 py-3 border border-slate-700/50">
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-slate-400">
+                Precio unificado {membershipRuleLoading && <span className="text-xs text-slate-500">(calculando…)</span>}
+              </span>
+              <span className="text-lg font-bold text-cyan-400">
+                {membershipRule ? `${membershipRule.amount.toFixed(2)} ${membershipRule.currency}` : '—'}
+              </span>
+            </div>
+            {membershipRule ? (
+              <div className="mt-2 flex items-center gap-2 text-xs text-slate-400">
+                <Tag size={11} className="text-cyan-400" />
+                <span>Regla:</span>
+                <Badge variant="cyan">{membershipRule.name}</Badge>
+                <span className="text-slate-600">#{membershipRule.rule_id}</span>
+              </div>
+            ) : !membershipRuleLoading && (
+              <div className="mt-2 text-xs text-amber-400/80">
+                Sin regla en <code>nm_price_rules</code> (scope=gym_plan) · se usará el precio manual
+              </div>
+            )}
+          </div>
         </div>
       </Modal>
 
@@ -671,6 +794,31 @@ export default function GestionGimnasioPage() {
             value={sessionForm.check_in}
             onChange={e => setSessionForm(f => ({ ...f, check_in: e.target.value }))}
           />
+
+          {sessionForm.type === 'clase' && (
+            <div className="bg-slate-800/50 rounded-lg px-4 py-3 border border-slate-700/50">
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-slate-400">
+                  Precio clase {sessionRuleLoading && <span className="text-xs text-slate-500">(calculando…)</span>}
+                </span>
+                <span className="text-lg font-bold text-cyan-400">
+                  {sessionRule ? `${sessionRule.amount.toFixed(2)} ${sessionRule.currency}` : '—'}
+                </span>
+              </div>
+              {sessionRule ? (
+                <div className="mt-2 flex items-center gap-2 text-xs text-slate-400">
+                  <Tag size={11} className="text-cyan-400" />
+                  <span>Regla:</span>
+                  <Badge variant="cyan">{sessionRule.name}</Badge>
+                  <span className="text-slate-600">#{sessionRule.rule_id}</span>
+                </div>
+              ) : !sessionRuleLoading && (
+                <div className="mt-2 text-xs text-amber-400/80">
+                  Sin regla en <code>nm_price_rules</code> (scope=class) · clase incluida en plan
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </Modal>
     </div>

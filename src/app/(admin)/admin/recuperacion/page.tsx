@@ -11,9 +11,11 @@ import { KpiCard } from '@/components/ui/kpi-card'
 import { useToast } from '@/components/ui/toast'
 import {
   Droplets, Snowflake, HandHelping, Activity, Stethoscope,
-  Plus, Trash2, CheckCircle2, XCircle, Calendar, Clock, Edit3
+  Plus, Trash2, CheckCircle2, XCircle, Calendar, Clock, Edit3, Tag
 } from 'lucide-react'
 import type { RecoverySession, User } from '@/types'
+import { lookupPrice } from '@/lib/api/pricing'
+import { useAuth } from '@/lib/auth-context'
 
 const SELECT_CLS = 'w-full rounded-lg border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-cyan-500/40 focus:border-cyan-500'
 
@@ -37,6 +39,7 @@ type Tab = typeof TABS[number]
 
 export default function RecuperacionPage() {
   const { toast } = useToast()
+  const { member } = useAuth()
   const [tab, setTab] = useState<Tab>('Hoy')
   const [sessions, setSessions] = useState<RecoverySession[]>([])
   const [users, setUsers] = useState<User[]>([])
@@ -53,6 +56,39 @@ export default function RecuperacionPage() {
     price: '',
     notes: '',
   })
+  const [pricingRule, setPricingRule] = useState<{ rule_id: number; amount: number; currency: string; name: string } | null>(null)
+  const [pricingLoading, setPricingLoading] = useState(false)
+
+  // Lookup de precio cada vez que cambian los parámetros clave del form
+  useEffect(() => {
+    if (!modalOpen) return
+    if (!form.type || !form.scheduled_at || !form.duration_minutes) {
+      setPricingRule(null)
+      return
+    }
+    let cancelled = false
+    setPricingLoading(true)
+    lookupPrice({
+      club_id: 1,
+      scope: 'recovery_type',
+      scope_ref_id: null,
+      at: new Date(form.scheduled_at).toISOString(),
+      duration_minutes: form.duration_minutes,
+      role_slug: member?.role ?? null,
+    })
+      .then(rule => {
+        if (cancelled) return
+        setPricingRule(rule)
+        // Auto-completar el campo de precio si hay regla y el user no tocó manual
+        if (rule && !form.price) {
+          setForm(f => ({ ...f, price: String(rule.amount) }))
+        }
+      })
+      .catch(() => { if (!cancelled) setPricingRule(null) })
+      .finally(() => { if (!cancelled) setPricingLoading(false) })
+    return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [modalOpen, form.type, form.scheduled_at, form.duration_minutes, member?.role])
 
   const loadSessions = useCallback(async () => {
     setLoading(true)
@@ -90,6 +126,7 @@ export default function RecuperacionPage() {
 
   function openCreate() {
     setEditing(null)
+    setPricingRule(null)
     setForm({
       user_id: '',
       type: 'masaje',
@@ -103,6 +140,7 @@ export default function RecuperacionPage() {
 
   function openEdit(s: RecoverySession) {
     setEditing(s)
+    setPricingRule(null)
     setForm({
       user_id: s.user_id,
       type: s.type,
@@ -125,13 +163,33 @@ export default function RecuperacionPage() {
     }
     setSaving(true)
     const supabase = createClient()
+
+    // Re-consultar la regla al momento del submit para consistencia
+    let finalRule = pricingRule
+    try {
+      finalRule = await lookupPrice({
+        club_id: 1,
+        scope: 'recovery_type',
+        scope_ref_id: null,
+        at: new Date(form.scheduled_at).toISOString(),
+        duration_minutes: form.duration_minutes,
+        role_slug: member?.role ?? null,
+      })
+    } catch {
+      // ignoro; uso el preview o el precio manual
+    }
+
+    const manualPrice = form.price ? Number(form.price) : null
+    const finalPrice = finalRule?.amount ?? manualPrice
+
     const payload = {
       club_id: 1,
       user_id: form.user_id,
       type: form.type,
       scheduled_at: new Date(form.scheduled_at).toISOString(),
       duration_minutes: form.duration_minutes,
-      price: form.price ? Number(form.price) : null,
+      price: finalPrice,
+      price_rule_id: finalRule?.rule_id ?? null,
       notes: form.notes || null,
     }
     const { error } = editing
@@ -343,6 +401,30 @@ export default function RecuperacionPage() {
           <div>
             <label className="block text-xs text-slate-400 mb-1">Precio (€, opcional)</label>
             <Input type="number" step="0.01" placeholder="ej. 15.00" value={form.price} onChange={e => setForm({ ...form, price: e.target.value })} />
+          </div>
+
+          {/* Preview regla aplicada */}
+          <div className="bg-slate-800/50 rounded-lg px-4 py-3 border border-slate-700/50">
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-slate-400">
+                Precio unificado {pricingLoading && <span className="text-xs text-slate-500">(calculando…)</span>}
+              </span>
+              <span className="text-lg font-bold text-cyan-400">
+                {pricingRule ? `${pricingRule.amount.toFixed(2)} ${pricingRule.currency}` : '—'}
+              </span>
+            </div>
+            {pricingRule ? (
+              <div className="mt-2 flex items-center gap-2 text-xs text-slate-400">
+                <Tag size={11} className="text-cyan-400" />
+                <span>Regla:</span>
+                <Badge className="bg-cyan-500/15 text-cyan-400">{pricingRule.name}</Badge>
+                <span className="text-slate-600">#{pricingRule.rule_id}</span>
+              </div>
+            ) : !pricingLoading && (
+              <div className="mt-2 text-xs text-amber-400/80">
+                Sin regla en <code>nm_price_rules</code> (scope=recovery_type) · se usará el precio manual
+              </div>
+            )}
           </div>
           <div>
             <label className="block text-xs text-slate-400 mb-1">Notas</label>

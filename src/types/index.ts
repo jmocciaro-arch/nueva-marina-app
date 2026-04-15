@@ -418,6 +418,7 @@ export interface GymMembership {
   end_date?: string
   status: string
   auto_renew: boolean
+  price_rule_id?: number | null
 }
 
 // SHOP
@@ -817,6 +818,7 @@ export interface RecoverySession {
   status: 'scheduled' | 'completed' | 'cancelled' | 'no_show'
   assigned_staff_id?: string
   price?: number
+  price_rule_id?: number | null
   payment_status: 'pending' | 'paid' | 'included'
   notes?: string
   completed_at?: string
