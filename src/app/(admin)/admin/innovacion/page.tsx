@@ -19,6 +19,7 @@ import {
   MessageSquare,
   Calendar,
   User,
+  Trash2,
 } from 'lucide-react'
 
 const CLUB_ID = 1
@@ -295,6 +296,26 @@ export default function InnovacionPage() {
   }
 
   // ─────────────────────────────────────────────────────────────
+  // Eliminar idea
+  // ─────────────────────────────────────────────────────────────
+  async function handleDeleteIdea(id: number) {
+    if (!confirm('¿Eliminar esta idea? Esta acción no se puede deshacer.')) return
+    try {
+      const supabase = createClient()
+      const { error } = await supabase
+        .from('nm_innovation_ideas')
+        .delete()
+        .eq('id', id)
+      if (error) throw error
+      toast('info', 'Idea eliminada')
+      loadIdeas()
+    } catch (err) {
+      console.error(err)
+      toast('error', 'Error al eliminar la idea')
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────
   // Opciones de selects
   // ─────────────────────────────────────────────────────────────
   const statusOptions = [
@@ -463,6 +484,13 @@ export default function InnovacionPage() {
                     <Calendar size={11} />
                     {formatDate(idea.created_at)}
                   </span>
+                  <button
+                    onClick={e => { e.stopPropagation(); handleDeleteIdea(idea.id) }}
+                    className="p-1 rounded text-slate-600 hover:text-red-400 hover:bg-red-500/10 transition-colors"
+                    title="Eliminar idea"
+                  >
+                    <Trash2 size={12} />
+                  </button>
                 </div>
               </div>
             </div>

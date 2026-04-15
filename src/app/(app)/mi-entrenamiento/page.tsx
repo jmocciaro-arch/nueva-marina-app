@@ -8,6 +8,95 @@ import { Badge } from '@/components/ui/badge'
 import { ClipboardList, Dumbbell, Calendar, Target, CheckCircle, PauseCircle } from 'lucide-react'
 import type { UserTrainingPlan, TrainingPlan } from '@/types'
 
+interface ScheduleExercise {
+  name: string
+  sets?: number | string
+  reps?: number | string
+  rest?: string
+  notes?: string
+}
+
+interface ScheduleDay {
+  day: string
+  exercises: ScheduleExercise[]
+}
+
+function ScheduleViewer({ schedule }: { schedule: unknown }) {
+  if (!schedule || (Array.isArray(schedule) && schedule.length === 0)) {
+    return (
+      <p className="text-sm text-slate-500 italic mt-4">
+        El entrenador aún no cargó los ejercicios.
+      </p>
+    )
+  }
+
+  // Normalise: schedule can be an array of days directly, or { weeks: [...] }
+  let days: ScheduleDay[] = []
+  if (Array.isArray(schedule)) {
+    // Could be array of days or array of weeks
+    const first = schedule[0] as Record<string, unknown>
+    if (first && 'exercises' in first) {
+      days = schedule as ScheduleDay[]
+    } else if (first && 'days' in first) {
+      // { days: ScheduleDay[] }[]  — flatten all weeks
+      for (const week of schedule as { days: ScheduleDay[] }[]) {
+        if (Array.isArray(week.days)) days.push(...week.days)
+      }
+    }
+  } else if (typeof schedule === 'object' && schedule !== null) {
+    const s = schedule as Record<string, unknown>
+    if (Array.isArray(s.weeks)) {
+      for (const week of s.weeks as { days?: ScheduleDay[]; exercises?: ScheduleExercise[]; day?: string }[]) {
+        if (Array.isArray(week.days)) days.push(...week.days)
+      }
+    } else if (Array.isArray(s.days)) {
+      days = s.days as ScheduleDay[]
+    }
+  }
+
+  if (days.length === 0) {
+    return (
+      <p className="text-sm text-slate-500 italic mt-4">
+        El entrenador aún no cargó los ejercicios.
+      </p>
+    )
+  }
+
+  return (
+    <div className="mt-5 space-y-4">
+      <h3 className="text-sm font-semibold text-slate-300 uppercase tracking-wide">Rutina de ejercicios</h3>
+      {days.map((dayItem, i) => (
+        <div key={i} className="rounded-lg bg-slate-800/60 border border-slate-700/50 overflow-hidden">
+          <div className="px-4 py-2 bg-indigo-600/20 border-b border-slate-700/50">
+            <span className="text-sm font-semibold text-indigo-300">{dayItem.day}</span>
+          </div>
+          {Array.isArray(dayItem.exercises) && dayItem.exercises.length > 0 ? (
+            <ul className="divide-y divide-slate-700/40">
+              {dayItem.exercises.map((ex, j) => (
+                <li key={j} className="flex items-center justify-between px-4 py-2.5 gap-3">
+                  <span className="text-sm text-white font-medium">{ex.name}</span>
+                  <div className="flex items-center gap-2 text-xs text-slate-400 shrink-0">
+                    {(ex.sets !== undefined || ex.reps !== undefined) && (
+                      <span className="bg-slate-700/60 px-2 py-0.5 rounded text-slate-300">
+                        {ex.sets ?? '?'} × {ex.reps ?? '?'}
+                      </span>
+                    )}
+                    {ex.rest && (
+                      <span className="text-slate-500">descanso: {ex.rest}</span>
+                    )}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="px-4 py-2.5 text-xs text-slate-500">Sin ejercicios cargados.</p>
+          )}
+        </div>
+      ))}
+    </div>
+  )
+}
+
 const LEVEL_LABELS: Record<string, string> = { beginner: 'Principiante', intermediate: 'Intermedio', advanced: 'Avanzado' }
 const LEVEL_COLORS: Record<string, string> = { beginner: 'text-green-400', intermediate: 'text-yellow-400', advanced: 'text-red-400' }
 
@@ -73,7 +162,7 @@ export default function MiEntrenamientoPage() {
                 </div>
               </div>
               {activePlan.plan.description && (
-                <p className="text-sm text-slate-400 mt-3">{activePlan.plan.description}</p>
+                <p className="text-sm text-slate-300 mt-3 leading-relaxed border-l-2 border-indigo-500/50 pl-3">{activePlan.plan.description}</p>
               )}
               <div className="mt-4 flex flex-wrap gap-4 text-sm text-slate-400">
                 {activePlan.plan.duration_weeks && (
@@ -118,6 +207,9 @@ export default function MiEntrenamientoPage() {
                   </div>
                 </div>
               )}
+
+              {/* Schedule */}
+              <ScheduleViewer schedule={activePlan.plan.schedule as unknown} />
             </div>
           </div>
         </Card>

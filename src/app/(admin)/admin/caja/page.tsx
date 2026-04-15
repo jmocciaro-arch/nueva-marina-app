@@ -11,7 +11,7 @@ import { Badge } from '@/components/ui/badge'
 import { KpiCard } from '@/components/ui/kpi-card'
 import { useToast } from '@/components/ui/toast'
 import { formatCurrency } from '@/lib/utils'
-import { Banknote, Plus, TrendingUp, TrendingDown, CreditCard, Wallet, ArrowRightLeft, ChevronLeft, ChevronRight, Trash2 } from 'lucide-react'
+import { Banknote, Plus, TrendingUp, TrendingDown, CreditCard, Wallet, ArrowRightLeft, ChevronLeft, ChevronRight, Trash2, Edit3 } from 'lucide-react'
 import type { CashEntry } from '@/types'
 
 const PAYMENT_METHODS: Record<string, { label: string; icon: React.ReactNode }> = {
@@ -40,6 +40,7 @@ export default function CajaRegistradoraPage() {
   const [loading, setLoading] = useState(true)
   const [modalOpen, setModalOpen] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [editingEntry, setEditingEntry] = useState<CashEntry | null>(null)
 
   const [formType, setFormType] = useState('other')
   const [formDesc, setFormDesc] = useState('')
@@ -84,6 +85,31 @@ export default function CajaRegistradoraPage() {
   const isToday = date === new Date().toISOString().split('T')[0]
   const dateLabel = new Date(date + 'T12:00:00').toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' })
 
+  function openNewModal() {
+    setEditingEntry(null)
+    setFormDesc('')
+    setFormAmount('')
+    setFormType('other')
+    setFormMethod('cash')
+    setFormIsExpense(false)
+    setModalOpen(true)
+  }
+
+  function openEditModal(entry: CashEntry) {
+    setEditingEntry(entry)
+    setFormType(entry.type)
+    setFormDesc(entry.description ?? '')
+    setFormAmount(String(Math.abs(entry.amount)))
+    setFormMethod(entry.payment_method)
+    setFormIsExpense(entry.amount < 0)
+    setModalOpen(true)
+  }
+
+  function closeModal() {
+    setEditingEntry(null)
+    setModalOpen(false)
+  }
+
   async function handleSave(e: React.FormEvent) {
     e.preventDefault()
     if (!formAmount || !formDesc) return
@@ -92,24 +118,30 @@ export default function CajaRegistradoraPage() {
     const supabase = createClient()
     const amount = formIsExpense ? -Math.abs(Number(formAmount)) : Math.abs(Number(formAmount))
 
-    const { error } = await supabase.from('nm_cash_register').insert({
-      club_id: 1,
-      type: formType,
-      description: formDesc,
-      amount,
-      payment_method: formMethod,
-      date,
-    })
+    let error
+    if (editingEntry) {
+      ;({ error } = await supabase.from('nm_cash_register').update({
+        type: formType,
+        description: formDesc,
+        amount,
+        payment_method: formMethod,
+      }).eq('id', editingEntry.id))
+    } else {
+      ;({ error } = await supabase.from('nm_cash_register').insert({
+        club_id: 1,
+        type: formType,
+        description: formDesc,
+        amount,
+        payment_method: formMethod,
+        date,
+      }))
+    }
 
     if (error) {
       toast('error', 'Error: ' + error.message)
     } else {
-      toast('success', 'Movimiento registrado')
-      setFormDesc('')
-      setFormAmount('')
-      setFormType('other')
-      setFormIsExpense(false)
-      setModalOpen(false)
+      toast('success', editingEntry ? 'Movimiento actualizado' : 'Movimiento registrado')
+      closeModal()
       loadEntries()
     }
     setSaving(false)
@@ -134,7 +166,7 @@ export default function CajaRegistradoraPage() {
           <h1 className="text-2xl font-bold text-white">Caja Registradora</h1>
           <p className="text-sm text-slate-400 mt-1">Control de ingresos y gastos del dia</p>
         </div>
-        <Button onClick={() => setModalOpen(true)}>
+        <Button onClick={openNewModal}>
           <Plus size={16} className="mr-1" />
           Nuevo Movimiento
         </Button>
@@ -216,9 +248,14 @@ export default function CajaRegistradoraPage() {
                     {entry.amount > 0 ? '+' : ''}{formatCurrency(entry.amount)}
                   </td>
                   <td className="py-3 pr-2 text-right">
-                    <button onClick={() => handleDelete(entry.id)} className="p-1 rounded text-slate-500 hover:text-red-400 hover:bg-red-500/10 transition-colors">
-                      <Trash2 size={14} />
-                    </button>
+                    <div className="flex items-center justify-end gap-1">
+                      <button onClick={() => openEditModal(entry)} className="p-1 rounded text-slate-500 hover:text-cyan-400 hover:bg-cyan-500/10 transition-colors">
+                        <Edit3 size={14} />
+                      </button>
+                      <button onClick={() => handleDelete(entry.id)} className="p-1 rounded text-slate-500 hover:text-red-400 hover:bg-red-500/10 transition-colors">
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -238,15 +275,15 @@ export default function CajaRegistradoraPage() {
         </div>
       </Card>
 
-      {/* New Entry Modal */}
+      {/* New / Edit Entry Modal */}
       <Modal
         open={modalOpen}
-        onClose={() => setModalOpen(false)}
-        title="Nuevo Movimiento"
+        onClose={closeModal}
+        title={editingEntry ? 'Editar Movimiento' : 'Nuevo Movimiento'}
         footer={
           <div className="flex items-center gap-3">
-            <Button variant="ghost" onClick={() => setModalOpen(false)}>Cancelar</Button>
-            <Button onClick={handleSave} loading={saving}>Registrar</Button>
+            <Button variant="ghost" onClick={closeModal}>Cancelar</Button>
+            <Button onClick={handleSave} loading={saving}>{editingEntry ? 'Guardar cambios' : 'Registrar'}</Button>
           </div>
         }
       >
