@@ -9,8 +9,10 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { useToast } from '@/components/ui/toast'
 import { formatCurrency, generateTimeSlots } from '@/lib/utils'
-import { Trash2 } from 'lucide-react'
+import { Trash2, Tag } from 'lucide-react'
 import type { Court, CourtSchedule, Booking } from '@/types'
+import { lookupPrice } from '@/lib/api/pricing'
+import { useAuth } from '@/lib/auth-context'
 
 interface BookingModalProps {
   open: boolean
@@ -33,8 +35,11 @@ export function BookingModal({
   booking, isAdmin,
 }: BookingModalProps) {
   const { toast } = useToast()
+  const { member } = useAuth()
   const [loading, setLoading] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const [pricingRule, setPricingRule] = useState<{ rule_id: number; amount: number; currency: string; name: string } | null>(null)
+  const [pricingLoading, setPricingLoading] = useState(false)
 
   const [courtId, setCourtId] = useState('')
   const [date, setDate] = useState('')
@@ -84,15 +89,14 @@ export function BookingModal({
     return `${String(eh).padStart(2, '0')}:${String(em).padStart(2, '0')}`
   })()
 
-  // Price calculation
-  const price = (() => {
+  // Legacy fallback (schedules) — usado sólo si nm_lookup_price no devuelve regla
+  const legacyPrice = (() => {
     const cid = Number(courtId)
     const dow = new Date(date + 'T12:00:00').getDay()
     const schedule = schedules.find(s => s.court_id === cid && s.day_of_week === dow)
     if (!schedule) return 0
     const slots = Number(duration) / (schedule.slot_duration || 90)
     const basePrice = schedule.price_per_slot || 24
-    // Check peak
     if (schedule.is_peak && schedule.peak_start && schedule.peak_end && schedule.peak_price) {
       const startMin = timeToMin(startTime)
       const peakStart = timeToMin(schedule.peak_start)
@@ -103,6 +107,34 @@ export function BookingModal({
     }
     return basePrice * slots
   })()
+
+  // Precio unificado: resultado de nm_lookup_price (si existe) o fallback
+  const price = pricingRule?.amount ?? legacyPrice
+
+  // Lookup pricing cada vez que cambian los parámetros clave
+  useEffect(() => {
+    if (!courtId || !date || !startTime || !duration) {
+      setPricingRule(null)
+      return
+    }
+    let cancelled = false
+    setPricingLoading(true)
+    const at = new Date(`${date}T${startTime}:00`).toISOString()
+    lookupPrice({
+      club_id: 1,
+      scope: 'court_hour',
+      scope_ref_id: Number(courtId),
+      at,
+      duration_minutes: Number(duration),
+      role_slug: member?.role ?? null,
+    })
+      .then((rule) => {
+        if (!cancelled) setPricingRule(rule)
+      })
+      .catch(() => { if (!cancelled) setPricingRule(null) })
+      .finally(() => { if (!cancelled) setPricingLoading(false) })
+    return () => { cancelled = true }
+  }, [courtId, date, startTime, duration, member?.role])
 
   // Available time slots
   const timeSlots = (() => {
@@ -120,6 +152,22 @@ export function BookingModal({
     setLoading(true)
     const supabase = createClient()
 
+    // Re-consultar precio en el momento del submit para consistencia
+    let finalRule = pricingRule
+    try {
+      finalRule = await lookupPrice({
+        club_id: 1,
+        scope: 'court_hour',
+        scope_ref_id: Number(courtId),
+        at: new Date(`${date}T${startTime}:00`).toISOString(),
+        duration_minutes: Number(duration),
+        role_slug: member?.role ?? null,
+      })
+    } catch {
+      // ignoro; usamos el preview o el legacy
+    }
+    const finalPrice = finalRule?.amount ?? legacyPrice
+
     const bookingData = {
       club_id: 1,
       court_id: Number(courtId),
@@ -128,7 +176,8 @@ export function BookingModal({
       end_time: endTime + ':00',
       duration_minutes: Number(duration),
       status,
-      price,
+      price: finalPrice,
+      price_rule_id: finalRule?.rule_id ?? null,
       payment_method: paymentMethod,
       payment_status: status === 'confirmed' ? 'paid' : 'pending',
       notes: customerName || notes,
@@ -175,12 +224,12 @@ export function BookingModal({
       }
 
       // Auto-register cash entry
-      if (status === 'confirmed' && price > 0) {
+      if (status === 'confirmed' && finalPrice > 0) {
         await supabase.from('nm_cash_register').insert({
           club_id: 1,
           type: 'booking',
           description: `Reserva ${customerName || 'Pista'} — ${date} ${startTime}`,
-          amount: price,
+          amount: finalPrice,
           payment_method: paymentMethod,
           date,
         })
@@ -296,9 +345,25 @@ export function BookingModal({
         </div>
 
         {/* Price display */}
-        <div className="flex items-center justify-between bg-slate-800/50 rounded-lg px-4 py-3 border border-slate-700/50">
-          <span className="text-sm text-slate-400">Precio</span>
-          <span className="text-xl font-bold text-cyan-400">{formatCurrency(price)}</span>
+        <div className="bg-slate-800/50 rounded-lg px-4 py-3 border border-slate-700/50">
+          <div className="flex items-center justify-between">
+            <span className="text-sm text-slate-400">
+              Precio {pricingLoading && <span className="text-xs text-slate-500">(calculando…)</span>}
+            </span>
+            <span className="text-xl font-bold text-cyan-400">{formatCurrency(price)}</span>
+          </div>
+          {pricingRule ? (
+            <div className="mt-2 flex items-center gap-2 text-xs text-slate-400">
+              <Tag size={11} className="text-cyan-400" />
+              <span>Regla aplicada:</span>
+              <Badge variant="cyan">{pricingRule.name}</Badge>
+              <span className="text-slate-600">#{pricingRule.rule_id}</span>
+            </div>
+          ) : !pricingLoading && (
+            <div className="mt-2 text-xs text-amber-400/80">
+              Sin regla en <code>nm_price_rules</code> · usando schedule legacy
+            </div>
+          )}
         </div>
 
         {isAdmin && (

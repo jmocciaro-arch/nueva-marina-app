@@ -140,6 +140,7 @@ export interface Booking {
   status: 'pending' | 'confirmed' | 'cancelled' | 'completed' | 'no_show'
   type: 'regular' | 'match' | 'tournament' | 'league' | 'class' | 'event'
   price?: number
+  price_rule_id?: number | null
   payment_status: 'pending' | 'paid' | 'refunded'
   payment_method?: string
   players: BookingPlayer[]
