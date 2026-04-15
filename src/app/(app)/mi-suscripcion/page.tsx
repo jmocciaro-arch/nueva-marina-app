@@ -3,20 +3,25 @@
 import { useState, useCallback, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useAuth } from '@/lib/auth-context'
+import { useToast } from '@/components/ui/toast'
 import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import { formatCurrency } from '@/lib/utils'
-import { CreditCard, Calendar, FileText, Ticket, CheckCircle } from 'lucide-react'
+import { CreditCard, Calendar, FileText, Ticket, CheckCircle, Download, Phone, AlertTriangle } from 'lucide-react'
 import type { Subscription, Invoice, UserCredit } from '@/types'
 
 const BILLING_LABELS: Record<string, string> = { monthly: 'Mensual', quarterly: 'Trimestral', semiannual: 'Semestral', annual: 'Anual' }
 
 export default function MiSuscripcionPage() {
   const { user } = useAuth()
+  const { toast } = useToast()
   const [sub, setSub] = useState<(Subscription & { plan?: { name: string; price: number; billing_cycle: string; includes_gym: boolean; includes_courts: boolean } }) | null>(null)
   const [invoices, setInvoices] = useState<Invoice[]>([])
   const [credits, setCredits] = useState<(UserCredit & { pack?: { name: string } })[]>([])
   const [loading, setLoading] = useState(true)
+  const [cancelando, setCancelando] = useState(false)
+  const [confirmCancelar, setConfirmCancelar] = useState(false)
 
   const loadData = useCallback(async () => {
     if (!user) return
@@ -54,6 +59,29 @@ export default function MiSuscripcionPage() {
 
   useEffect(() => { loadData() }, [loadData])
 
+  const cancelarSuscripcion = useCallback(async () => {
+    if (!sub) return
+    setCancelando(true)
+    try {
+      const supabase = createClient()
+      const { error } = await supabase
+        .from('nm_subscriptions')
+        .update({ cancel_at_period_end: true })
+        .eq('id', sub.id)
+      if (error) throw error
+      setSub(prev => prev ? { ...prev, cancel_at_period_end: true } : prev)
+      const msg = sub.current_period_end
+        ? `Tu suscripción seguirá activa hasta el ${new Date(sub.current_period_end).toLocaleDateString('es-ES', { day: 'numeric', month: 'long', year: 'numeric' })}`
+        : 'Tu suscripción seguirá activa hasta el fin del período actual'
+      toast('success', msg)
+    } catch {
+      toast('error', 'Error al cancelar la suscripción')
+    } finally {
+      setCancelando(false)
+      setConfirmCancelar(false)
+    }
+  }, [sub, toast])
+
   if (loading) {
     return (
       <div className="space-y-6">
@@ -72,6 +100,7 @@ export default function MiSuscripcionPage() {
 
       {/* Current Plan */}
       {sub && sub.plan ? (
+        <>
         <Card>
           <div className="flex items-start justify-between">
             <div className="flex items-center gap-4">
@@ -97,7 +126,71 @@ export default function MiSuscripcionPage() {
               <Calendar size={14} /> Próxima renovación: <span className="text-white font-medium">{new Date(sub.current_period_end).toLocaleDateString('es-ES', { day: 'numeric', month: 'long', year: 'numeric' })}</span>
             </div>
           )}
+          {(sub as Subscription & { cancel_at_period_end?: boolean }).cancel_at_period_end && (
+            <div className="mt-4 rounded-lg bg-amber-500/10 border border-amber-500/20 px-4 py-3 text-sm text-amber-400">
+              Cancelación programada — la suscripción no se renovará al finalizar el período actual.
+            </div>
+          )}
+          <div className="mt-5 flex flex-wrap items-center gap-3 pt-4 border-t border-slate-700/50">
+            {!(sub as Subscription & { cancel_at_period_end?: boolean }).cancel_at_period_end && (
+              <Button
+                variant="danger"
+                size="sm"
+                onClick={() => setConfirmCancelar(true)}
+              >
+                <AlertTriangle size={14} className="mr-1.5" />
+                Cancelar suscripción
+              </Button>
+            )}
+            <a
+              href="tel:+34000000000"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-700/50 text-slate-300 hover:bg-slate-700 hover:text-white text-sm font-medium transition-colors"
+            >
+              <Phone size={14} />
+              Contactar recepción
+            </a>
+            <p className="text-xs text-slate-500">Para cambiar de plan, contactá a recepción.</p>
+          </div>
         </Card>
+
+        {/* Diálogo de confirmación de cancelación */}
+        {confirmCancelar && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm px-4">
+            <div className="w-full max-w-sm rounded-2xl bg-slate-900 border border-slate-700 p-6 shadow-2xl">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-10 h-10 rounded-xl bg-red-500/10 flex items-center justify-center shrink-0">
+                  <AlertTriangle size={20} className="text-red-400" />
+                </div>
+                <div>
+                  <h3 className="text-base font-semibold text-white">¿Cancelar suscripción?</h3>
+                  <p className="text-sm text-slate-400 mt-0.5">No se renovará al finalizar el período actual.</p>
+                </div>
+              </div>
+              {sub.current_period_end && (
+                <p className="text-sm text-slate-300 mb-5">
+                  Tu suscripción seguirá activa hasta el{' '}
+                  <span className="font-semibold text-white">
+                    {new Date(sub.current_period_end).toLocaleDateString('es-ES', { day: 'numeric', month: 'long', year: 'numeric' })}
+                  </span>.
+                </p>
+              )}
+              <div className="flex gap-3 justify-end">
+                <Button variant="secondary" size="sm" onClick={() => setConfirmCancelar(false)}>
+                  Volver
+                </Button>
+                <Button
+                  variant="danger"
+                  size="sm"
+                  disabled={cancelando}
+                  onClick={cancelarSuscripcion}
+                >
+                  {cancelando ? 'Procesando…' : 'Sí, cancelar'}
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
+        </>
       ) : (
         <Card>
           <div className="flex flex-col items-center py-8">
@@ -153,6 +246,7 @@ export default function MiSuscripcionPage() {
                     <th className="text-right text-xs font-medium text-slate-400 pb-3">Total</th>
                     <th className="text-left text-xs font-medium text-slate-400 pb-3">Estado</th>
                     <th className="text-left text-xs font-medium text-slate-400 pb-3">Fecha</th>
+                    <th className="text-left text-xs font-medium text-slate-400 pb-3"></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -166,6 +260,18 @@ export default function MiSuscripcionPage() {
                         </Badge>
                       </td>
                       <td className="py-3 text-sm text-slate-400">{new Date(inv.created_at).toLocaleDateString('es-ES')}</td>
+                      <td className="py-3 pr-2">
+                        <a
+                          href={`/api/billing/invoice-pdf?id=${inv.id}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-slate-700/50 text-slate-400 hover:bg-slate-700 hover:text-white text-xs font-medium transition-colors"
+                          title="Descargar PDF"
+                        >
+                          <Download size={12} />
+                          PDF
+                        </a>
+                      </td>
                     </tr>
                   ))}
                 </tbody>

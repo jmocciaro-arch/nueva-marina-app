@@ -7,6 +7,7 @@ import { KpiCard } from '@/components/ui/kpi-card'
 import { Badge } from '@/components/ui/badge'
 import { Select } from '@/components/ui/select'
 import { formatCurrency } from '@/lib/utils'
+import { Button } from '@/components/ui/button'
 import {
   BarChart3,
   Banknote,
@@ -20,6 +21,7 @@ import {
   Users,
   TrendingUp,
   Layout,
+  Download,
 } from 'lucide-react'
 
 // ─── types ───────────────────────────────────────────────────────────────────
@@ -117,6 +119,15 @@ export default function ReportesPage() {
   const [cashRows, setCashRows] = useState<CashRow[]>([])
   // booking data
   const [bookingRows, setBookingRows] = useState<BookingRow[]>([])
+  // gym data
+  const [gymMemberships, setGymMemberships] = useState(0)
+  const [gymSessionsToday, setGymSessionsToday] = useState(0)
+  // subscriptions data
+  const [activeSubs, setActiveSubs] = useState(0)
+  const [subsRevenue, setSubsRevenue] = useState(0)
+  // leagues data
+  const [activeLeagues, setActiveLeagues] = useState(0)
+  const [totalTeams, setTotalTeams] = useState(0)
 
   // ── fetch ──────────────────────────────────────────────────────────────────
 
@@ -125,7 +136,9 @@ export default function ReportesPage() {
     const supabase = createClient()
     const { from, to } = getPeriodRange(period)
 
-    const [cashRes, bookingsRes] = await Promise.all([
+    const today = new Date().toISOString().split('T')[0]
+
+    const [cashRes, bookingsRes, gymMembRes, gymSessRes, subsRes, leaguesRes, teamsRes] = await Promise.all([
       supabase
         .from('nm_cash_register')
         .select('type, payment_method, amount')
@@ -139,16 +152,85 @@ export default function ReportesPage() {
         .gte('date', from)
         .lte('date', to)
         .neq('status', 'cancelled'),
+      supabase
+        .from('nm_gym_memberships')
+        .select('id', { count: 'exact', head: true })
+        .eq('status', 'active'),
+      supabase
+        .from('nm_gym_sessions')
+        .select('id', { count: 'exact', head: true })
+        .eq('date', today),
+      supabase
+        .from('nm_subscriptions')
+        .select('id, nm_subscription_plans(price)')
+        .eq('status', 'active'),
+      supabase
+        .from('nm_leagues')
+        .select('id', { count: 'exact', head: true })
+        .in('status', ['registration', 'active']),
+      supabase
+        .from('nm_league_teams')
+        .select('id', { count: 'exact', head: true }),
     ])
 
     setCashRows((cashRes.data || []) as CashRow[])
     setBookingRows((bookingsRes.data || []) as unknown as BookingRow[])
+
+    setGymMemberships(gymMembRes.count ?? 0)
+    setGymSessionsToday(gymSessRes.count ?? 0)
+
+    const subsData = (subsRes.data || []) as unknown as { id: number; nm_subscription_plans: { price: number } | { price: number }[] | null }[]
+    setActiveSubs(subsData.length)
+    const rev = subsData.reduce((sum: number, s) => {
+      const plan = Array.isArray(s.nm_subscription_plans) ? s.nm_subscription_plans[0] : s.nm_subscription_plans
+      return sum + (plan?.price ?? 0)
+    }, 0)
+    setSubsRevenue(rev)
+
+    setActiveLeagues(leaguesRes.count ?? 0)
+    setTotalTeams(teamsRes.count ?? 0)
+
     setLoading(false)
   }, [period])
 
   useEffect(() => {
     loadData()
   }, [loadData])
+
+  // ── CSV export ─────────────────────────────────────────────────────────────
+
+  function exportCSV() {
+    const rows: string[][] = [
+      ['Metrica', 'Valor'],
+      ['Ingresos totales', String(totalRevenue)],
+      ['Reservas', String(totalBookings)],
+      ['Precio medio reserva', String(avgPrice.toFixed(2))],
+      ['Pistas activas', String(uniqueCourts)],
+      ['Socios gym activos', String(gymMemberships)],
+      ['Sesiones gym hoy', String(gymSessionsToday)],
+      ['Suscripciones activas', String(activeSubs)],
+      ['Ingresos suscripciones', String(subsRevenue)],
+      ['Ligas activas', String(activeLeagues)],
+      ['Equipos en ligas', String(totalTeams)],
+      [],
+      ['Tipo', 'Ingresos'],
+      ...Object.entries(revenueByType).map(([k, v]) => [TYPE_META[k]?.label ?? k, String(v)]),
+      [],
+      ['Metodo de pago', 'Ingresos'],
+      ...Object.entries(revenueByMethod).map(([k, v]) => [METHOD_META[k]?.label ?? k, String(v)]),
+      [],
+      ['Jugador', 'Email', 'Reservas', 'Gasto total'],
+      ...topPlayers.map(p => [p.name, p.email, String(p.bookings), String(p.total_spent)]),
+    ]
+    const csv = rows.map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n')
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `reporte-${period}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
 
   // ── derived data ───────────────────────────────────────────────────────────
 
@@ -230,12 +312,23 @@ export default function ReportesPage() {
           <h1 className="text-2xl font-bold text-white">Reportes y Analytics</h1>
           <p className="text-sm text-slate-400 mt-1">Estadisticas y metricas del club</p>
         </div>
-        <div className="w-48">
-          <Select
-            value={period}
-            onChange={e => setPeriod(e.target.value as Period)}
-            options={PERIOD_OPTIONS}
-          />
+        <div className="flex items-center gap-3">
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={exportCSV}
+            disabled={loading}
+          >
+            <Download size={14} />
+            Exportar CSV
+          </Button>
+          <div className="w-48">
+            <Select
+              value={period}
+              onChange={e => setPeriod(e.target.value as Period)}
+              options={PERIOD_OPTIONS}
+            />
+          </div>
         </div>
       </div>
 
@@ -268,6 +361,36 @@ export default function ReportesPage() {
               value={uniqueCourts}
               subtitle="con reservas en el periodo"
               icon={<Layout size={20} />}
+              color="#f59e0b"
+            />
+          </div>
+
+          {/* ── KPIs secundarios ─────────────────────────────────────────── */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            <KpiCard
+              title="Socios gym activos"
+              value={gymMemberships}
+              icon={<Dumbbell size={20} />}
+              color="#10b981"
+            />
+            <KpiCard
+              title="Sesiones gym hoy"
+              value={gymSessionsToday}
+              icon={<Users size={20} />}
+              color="#06b6d4"
+            />
+            <KpiCard
+              title="Suscripciones activas"
+              value={activeSubs}
+              subtitle={`${formatCurrency(subsRevenue)} / mes`}
+              icon={<CreditCard size={20} />}
+              color="#8b5cf6"
+            />
+            <KpiCard
+              title="Ligas activas"
+              value={activeLeagues}
+              subtitle={`${totalTeams} equipos inscriptos`}
+              icon={<Trophy size={20} />}
               color="#f59e0b"
             />
           </div>

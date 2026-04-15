@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import {
-  Plus, Edit2, Zap, ZapOff, CheckCircle, XCircle,
+  Plus, Edit2, Trash2, Zap, ZapOff, CheckCircle, XCircle,
   Lightbulb, LightbulbOff, Grid3X3, ChevronDown
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
@@ -269,6 +269,14 @@ export default function ConfigurarPistasPage() {
     setSavingCourt(false)
   }
 
+  async function handleDeleteCourt(id: number) {
+    if (!confirm('¿Eliminar esta pista? Esta acción no se puede deshacer.')) return
+    const supabase = createClient()
+    const { error } = await supabase.from('nm_courts').delete().eq('id', id)
+    if (error) toast('error', 'Error eliminando la pista')
+    else { toast('success', 'Pista eliminada'); loadCourts() }
+  }
+
   // ── Bulk pricing modal ──────────────────────────────────────────────────────
 
   const [bulkOpen, setBulkOpen] = useState(false)
@@ -522,6 +530,7 @@ export default function ConfigurarPistasPage() {
                 key={court.id}
                 court={court}
                 onEdit={() => openEditCourt(court)}
+                onDelete={() => handleDeleteCourt(court.id)}
               />
             ))}
           </div>
@@ -953,7 +962,7 @@ export default function ConfigurarPistasPage() {
 
 // ─── Court Card Sub-component ─────────────────────────────────────────────────
 
-function CourtCard({ court, onEdit }: { court: Court; onEdit: () => void }) {
+function CourtCard({ court, onEdit, onDelete }: { court: Court; onEdit: () => void; onDelete: () => void }) {
   return (
     <div
       className="relative rounded-xl border border-slate-700/50 bg-slate-800/60 overflow-hidden cursor-pointer group hover:border-slate-600 transition-all"
@@ -975,13 +984,22 @@ function CourtCard({ court, onEdit }: { court: Court; onEdit: () => void }) {
             />
             <h3 className="text-white font-semibold text-base leading-tight">{court.name}</h3>
           </div>
-          <button
-            onClick={e => { e.stopPropagation(); onEdit() }}
-            className="opacity-0 group-hover:opacity-100 transition-opacity text-slate-400 hover:text-white p-1 rounded"
-            title="Editar pista"
-          >
-            <Edit2 size={14} />
-          </button>
+          <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+            <button
+              onClick={e => { e.stopPropagation(); onEdit() }}
+              className="text-slate-400 hover:text-white p-1 rounded"
+              title="Editar pista"
+            >
+              <Edit2 size={14} />
+            </button>
+            <button
+              onClick={e => { e.stopPropagation(); onDelete() }}
+              className="text-slate-400 hover:text-red-400 hover:bg-red-500/10 p-1 rounded"
+              title="Eliminar pista"
+            >
+              <Trash2 size={14} />
+            </button>
+          </div>
         </div>
 
         {/* Attributes */}

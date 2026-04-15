@@ -10,7 +10,7 @@ import { Modal } from '@/components/ui/modal'
 import { Badge } from '@/components/ui/badge'
 import { KpiCard } from '@/components/ui/kpi-card'
 import { useToast } from '@/components/ui/toast'
-import { UserCog, Plus, Calendar, Clock, Users, CheckCircle, XCircle, Edit2, Trash2, LogIn, LogOut } from 'lucide-react'
+import { UserCog, Plus, Calendar, Clock, Users, CheckCircle, XCircle, Edit2, Edit3, Trash2, LogIn, LogOut } from 'lucide-react'
 import type { StaffSchedule, StaffShift } from '@/types'
 
 const DAY_NAMES = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado']
@@ -34,6 +34,7 @@ export default function AdminStaffPage() {
   const [loadingSchedules, setLoadingSchedules] = useState(true)
   const [scheduleModalOpen, setScheduleModalOpen] = useState(false)
   const [scheduleSaving, setScheduleSaving] = useState(false)
+  const [editingSchedule, setEditingSchedule] = useState<StaffSchedule | null>(null)
 
   const [schedUserId, setSchedUserId] = useState('')
   const [schedDay, setSchedDay] = useState('1')
@@ -110,17 +111,29 @@ export default function AdminStaffPage() {
     if (!schedUserId) return
     setScheduleSaving(true)
     const supabase = createClient()
-    const { error } = await supabase.from('nm_staff_schedules').insert({
-      club_id: 1,
-      user_id: schedUserId,
-      day_of_week: Number(schedDay),
-      start_time: schedStart,
-      end_time: schedEnd,
-      role: schedRole,
-      is_active: true,
-    })
-    if (error) toast('error', 'Error: ' + error.message)
-    else { toast('success', 'Horario creado'); setScheduleModalOpen(false); loadSchedules() }
+    if (editingSchedule) {
+      const { error } = await supabase.from('nm_staff_schedules').update({
+        user_id: schedUserId,
+        day_of_week: Number(schedDay),
+        start_time: schedStart,
+        end_time: schedEnd,
+        role: schedRole,
+      }).eq('id', editingSchedule.id)
+      if (error) toast('error', 'Error: ' + error.message)
+      else { toast('success', 'Horario actualizado'); setScheduleModalOpen(false); setEditingSchedule(null); loadSchedules() }
+    } else {
+      const { error } = await supabase.from('nm_staff_schedules').insert({
+        club_id: 1,
+        user_id: schedUserId,
+        day_of_week: Number(schedDay),
+        start_time: schedStart,
+        end_time: schedEnd,
+        role: schedRole,
+        is_active: true,
+      })
+      if (error) toast('error', 'Error: ' + error.message)
+      else { toast('success', 'Horario creado'); setScheduleModalOpen(false); loadSchedules() }
+    }
     setScheduleSaving(false)
   }
 
@@ -239,7 +252,7 @@ export default function AdminStaffPage() {
             </>
           )}
           {tab === 'schedules' && (
-            <Button onClick={() => setScheduleModalOpen(true)}>
+            <Button onClick={() => { setEditingSchedule(null); setSchedUserId(''); setSchedDay('1'); setSchedStart('09:00'); setSchedEnd('17:00'); setSchedRole('recepcion'); setScheduleModalOpen(true) }}>
               <Plus size={16} className="mr-1" /> Nuevo Horario
             </Button>
           )}
@@ -352,6 +365,20 @@ export default function AdminStaffPage() {
                               {s.role && <Badge variant="default">{ROLE_OPTIONS.find(r => r.value === s.role)?.label || s.role}</Badge>}
                             </div>
                           </div>
+                          <button
+                            onClick={() => {
+                              setEditingSchedule(s)
+                              setSchedUserId(s.user_id)
+                              setSchedDay(String(s.day_of_week))
+                              setSchedStart(s.start_time)
+                              setSchedEnd(s.end_time)
+                              setSchedRole(s.role || 'recepcion')
+                              setScheduleModalOpen(true)
+                            }}
+                            className="p-1 rounded text-slate-500 hover:text-cyan-400 hover:bg-cyan-500/10"
+                          >
+                            <Edit3 size={14} />
+                          </button>
                           <button onClick={() => deleteSchedule(s.id)} className="p-1 rounded text-slate-500 hover:text-red-400 hover:bg-red-500/10"><Trash2 size={14} /></button>
                         </div>
                       ))}
@@ -367,12 +394,12 @@ export default function AdminStaffPage() {
       {/* Schedule Modal */}
       <Modal
         open={scheduleModalOpen}
-        onClose={() => setScheduleModalOpen(false)}
-        title="Nuevo Horario Semanal"
+        onClose={() => { setScheduleModalOpen(false); setEditingSchedule(null) }}
+        title={editingSchedule ? 'Editar Horario Semanal' : 'Nuevo Horario Semanal'}
         footer={
           <div className="flex items-center gap-3">
-            <Button variant="ghost" onClick={() => setScheduleModalOpen(false)}>Cancelar</Button>
-            <Button onClick={handleSaveSchedule} loading={scheduleSaving}>Crear</Button>
+            <Button variant="ghost" onClick={() => { setScheduleModalOpen(false); setEditingSchedule(null) }}>Cancelar</Button>
+            <Button onClick={handleSaveSchedule} loading={scheduleSaving}>{editingSchedule ? 'Guardar cambios' : 'Crear'}</Button>
           </div>
         }
       >

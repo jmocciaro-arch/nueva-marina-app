@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useState } from 'react'
 import { ShoppingBag, Star, Package, Search, X } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
+import { useAuth } from '@/lib/auth-context'
+import { useToast } from '@/components/ui/toast'
 import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -26,11 +28,50 @@ const CATEGORIAS = [
 // ─── Componente principal ──────────────────────────────────────────────────────
 
 export default function TiendaPage() {
+  const { user } = useAuth()
+  const { toast } = useToast()
   const [products, setProducts] = useState<Product[]>([])
   const [loading, setLoading] = useState(true)
   const [categoriaActiva, setCategoriaActiva] = useState('todos')
   const [busqueda, setBusqueda] = useState('')
   const [productoSeleccionado, setProductoSeleccionado] = useState<Product | null>(null)
+  const [solicitando, setSolicitando] = useState(false)
+
+  // ─── Solicitar producto a recepción ─────────────────────────────────────────
+
+  const solicitarProducto = useCallback(async (product: Product) => {
+    if (!user) return
+    setSolicitando(true)
+    try {
+      const supabase = createClient()
+
+      // Buscar todos los admins/owners activos del club
+      const { data: admins } = await supabase
+        .from('nm_club_members')
+        .select('user_id')
+        .eq('club_id', CLUB_ID)
+        .in('role', ['admin', 'owner'])
+        .eq('is_active', true)
+
+      if (admins && admins.length > 0) {
+        const notifications = admins.map(a => ({
+          user_id: a.user_id,
+          club_id: CLUB_ID,
+          type: 'alert',
+          title: 'Solicitud de producto',
+          body: `${product.name} — solicitado por ${(user as { full_name?: string }).full_name ?? user.email}`,
+          is_read: false,
+        }))
+        await supabase.from('nm_notifications').insert(notifications)
+      }
+
+      toast('success', 'Solicitud enviada a recepción')
+    } catch {
+      toast('error', 'Error al enviar la solicitud')
+    } finally {
+      setSolicitando(false)
+    }
+  }, [user, toast])
 
   // ─── Carga de datos ─────────────────────────────────────────────────────────
 
@@ -179,9 +220,21 @@ export default function TiendaPage() {
         title={productoSeleccionado?.name ?? ''}
         size="md"
         footer={
-          <Button variant="secondary" onClick={() => setProductoSeleccionado(null)}>
-            Cerrar
-          </Button>
+          <div className="flex gap-2 justify-end">
+            <Button variant="secondary" onClick={() => setProductoSeleccionado(null)}>
+              Cerrar
+            </Button>
+            {productoSeleccionado && (
+              <Button
+                variant="primary"
+                disabled={solicitando}
+                onClick={() => solicitarProducto(productoSeleccionado)}
+              >
+                <ShoppingBag size={15} className="mr-1.5" />
+                {solicitando ? 'Enviando…' : 'Solicitar / Reservar'}
+              </Button>
+            )}
+          </div>
         }
       >
         {productoSeleccionado && (
