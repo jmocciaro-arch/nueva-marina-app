@@ -113,6 +113,11 @@ export default function LigaDetallePage() {
   const [autoLinking, setAutoLinking] = useState(false)
   const [autoLinkReport, setAutoLinkReport] = useState<{ linked: number; ambiguous: number; noMatch: number; scope: string } | null>(null)
 
+  // Crear usuario nuevo desde el modal de vincular
+  const [creatingNew, setCreatingNew] = useState(false)
+  const [newUserForm, setNewUserForm] = useState({ full_name: '', email: '', phone: '', password: '' })
+  const [savingNewUser, setSavingNewUser] = useState(false)
+
   const load = useCallback(async () => {
     setLoading(true)
     const supabase = createClient()
@@ -169,6 +174,48 @@ export default function LigaDetallePage() {
     setLinking(null)
     setLinkSearch('')
     setSavingLink(false)
+    load()
+  }
+
+  async function createAndLink() {
+    if (!linking) return
+    const full_name = newUserForm.full_name.trim()
+    const email = newUserForm.email.trim().toLowerCase()
+    const password = newUserForm.password.trim() || Math.random().toString(36).slice(2, 10) + 'A1'
+    if (!full_name || !email) { toast('error', 'Nombre y email son obligatorios'); return }
+    setSavingNewUser(true)
+    const res = await fetch('/api/users', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email, password, full_name,
+        phone: newUserForm.phone.trim() || null,
+        role: 'player',
+      }),
+    })
+    const j = await res.json()
+    if (!res.ok) {
+      toast('error', j.error ?? 'Error creando usuario')
+      setSavingNewUser(false)
+      return
+    }
+    const newId = j.user_id as string
+    // Vincular al slot actual
+    const supabase = createClient()
+    const update: Record<string, unknown> = {}
+    update[`player${linking.slot}_id`] = newId
+    update[`player${linking.slot}_name`] = full_name
+    const { error } = await supabase.from('nm_league_teams').update(update).eq('id', linking.team.id)
+    if (error) { toast('error', error.message); setSavingNewUser(false); return }
+
+    // Refrescar lista local de users
+    setUsers(prev => [...prev, { id: newId, full_name, email, avatar_url: null, profile_completed_at: null }])
+    toast('success', `Usuario ${full_name} creado y vinculado`)
+    setCreatingNew(false)
+    setNewUserForm({ full_name: '', email: '', phone: '', password: '' })
+    setLinking(null)
+    setLinkSearch('')
+    setSavingNewUser(false)
     load()
   }
 
@@ -611,57 +658,119 @@ export default function LigaDetallePage() {
 
       {/* Modal vincular jugador */}
       {linking && (
-        <Modal open={!!linking} onClose={() => { setLinking(null); setLinkSearch('') }} title={`Vincular jugador — ${linking.team.team_name ?? '(sin nombre)'}`}>
+        <Modal open={!!linking} onClose={() => { setLinking(null); setLinkSearch(''); setCreatingNew(false) }} title={`Vincular jugador — ${linking.team.team_name ?? '(sin nombre)'}`}>
           <div className="space-y-3">
             <p className="text-xs text-slate-400">
               Nombre en Excel: <strong className="text-white">
                 {linking.slot === 1 ? linking.team.player1_name : linking.slot === 2 ? linking.team.player2_name : linking.team.player3_name}
               </strong>
             </p>
-            <Input
-              placeholder="Buscar por nombre o email..."
-              value={linkSearch}
-              onChange={e => setLinkSearch(e.target.value)}
-              autoFocus
-            />
-            <div className="max-h-80 overflow-y-auto space-y-1 border border-slate-700/50 rounded-lg p-1">
-              {(() => {
-                const q = linkSearch.trim().toLowerCase()
-                const filtered = q
-                  ? users.filter(u =>
-                      (u.full_name?.toLowerCase().includes(q) ?? false) ||
-                      u.email.toLowerCase().includes(q)
-                    )
-                  : users.slice(0, 50)
-                if (filtered.length === 0) return <p className="text-xs text-slate-500 p-3 text-center">Sin resultados</p>
-                return filtered.map(u => (
-                  <button
-                    key={u.id}
-                    onClick={() => linkPlayer(u.id)}
-                    disabled={savingLink}
-                    className="w-full flex items-center gap-2 p-2 rounded hover:bg-slate-700/50 text-left transition-colors disabled:opacity-50"
-                  >
-                    <div className="w-8 h-8 rounded-full bg-slate-700 flex items-center justify-center overflow-hidden shrink-0">
-                      {u.avatar_url ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img src={u.avatar_url} alt="" className="w-full h-full object-cover" />
-                      ) : <span className="text-xs text-slate-400">{(u.full_name ?? u.email).charAt(0).toUpperCase()}</span>}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="text-sm text-white truncate">{u.full_name ?? '(sin nombre)'}</div>
-                      <div className="text-xs text-slate-500 truncate">{u.email}</div>
-                    </div>
-                    {u.profile_completed_at && <Badge variant="success">Ficha ok</Badge>}
-                  </button>
-                ))
-              })()}
-            </div>
-            <div className="flex gap-2 justify-between pt-2">
-              <Button variant="ghost" onClick={() => linkPlayer(null)} disabled={savingLink} className="text-red-400">
-                Quitar vínculo
-              </Button>
-              <Button variant="ghost" onClick={() => { setLinking(null); setLinkSearch('') }} disabled={savingLink}>Cancelar</Button>
-            </div>
+
+            {!creatingNew ? (
+              <>
+                <Input
+                  placeholder="Buscar por nombre o email..."
+                  value={linkSearch}
+                  onChange={e => setLinkSearch(e.target.value)}
+                  autoFocus
+                />
+                <div className="max-h-72 overflow-y-auto space-y-1 border border-slate-700/50 rounded-lg p-1">
+                  {(() => {
+                    const q = linkSearch.trim().toLowerCase()
+                    const filtered = q
+                      ? users.filter(u =>
+                          (u.full_name?.toLowerCase().includes(q) ?? false) ||
+                          u.email.toLowerCase().includes(q)
+                        )
+                      : users.slice(0, 50)
+                    if (filtered.length === 0) return <p className="text-xs text-slate-500 p-3 text-center">Sin resultados</p>
+                    return filtered.map(u => (
+                      <button
+                        key={u.id}
+                        onClick={() => linkPlayer(u.id)}
+                        disabled={savingLink}
+                        className="w-full flex items-center gap-2 p-2 rounded hover:bg-slate-700/50 text-left transition-colors disabled:opacity-50"
+                      >
+                        <div className="w-8 h-8 rounded-full bg-slate-700 flex items-center justify-center overflow-hidden shrink-0">
+                          {u.avatar_url ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img src={u.avatar_url} alt="" className="w-full h-full object-cover" />
+                          ) : <span className="text-xs text-slate-400">{(u.full_name ?? u.email).charAt(0).toUpperCase()}</span>}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm text-white truncate">{u.full_name ?? '(sin nombre)'}</div>
+                          <div className="text-xs text-slate-500 truncate">{u.email}</div>
+                        </div>
+                        {u.profile_completed_at && <Badge variant="success">Ficha ok</Badge>}
+                      </button>
+                    ))
+                  })()}
+                </div>
+                <div className="flex gap-2 justify-between pt-2">
+                  <Button variant="ghost" onClick={() => linkPlayer(null)} disabled={savingLink} className="text-red-400">
+                    Quitar vínculo
+                  </Button>
+                  <div className="flex gap-2">
+                    <Button
+                      variant="ghost"
+                      onClick={() => {
+                        const excelName = linking.slot === 1 ? linking.team.player1_name : linking.slot === 2 ? linking.team.player2_name : linking.team.player3_name
+                        setNewUserForm({ full_name: excelName ?? '', email: '', phone: '', password: '' })
+                        setCreatingNew(true)
+                      }}
+                      disabled={savingLink}
+                      className="text-cyan-400"
+                    >
+                      + Crear usuario
+                    </Button>
+                    <Button variant="ghost" onClick={() => { setLinking(null); setLinkSearch('') }} disabled={savingLink}>Cancelar</Button>
+                  </div>
+                </div>
+              </>
+            ) : (
+              <div className="space-y-2 border border-cyan-500/30 bg-cyan-500/5 rounded-lg p-3">
+                <p className="text-xs text-cyan-300 font-semibold">Crear usuario nuevo y vincularlo a este slot</p>
+                <div>
+                  <label className="block text-xs text-slate-400 mb-1">Nombre completo *</label>
+                  <Input
+                    value={newUserForm.full_name}
+                    onChange={e => setNewUserForm(f => ({ ...f, full_name: e.target.value }))}
+                    autoFocus
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-slate-400 mb-1">Email *</label>
+                  <Input
+                    type="email"
+                    value={newUserForm.email}
+                    onChange={e => setNewUserForm(f => ({ ...f, email: e.target.value }))}
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-slate-400 mb-1">Teléfono</label>
+                  <Input
+                    value={newUserForm.phone}
+                    onChange={e => setNewUserForm(f => ({ ...f, phone: e.target.value }))}
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-slate-400 mb-1">Contraseña inicial</label>
+                  <Input
+                    value={newUserForm.password}
+                    onChange={e => setNewUserForm(f => ({ ...f, password: e.target.value }))}
+                    placeholder="Vacío = generada automáticamente"
+                  />
+                  <p className="text-[10px] text-slate-500 mt-0.5">El jugador puede pedir reset desde login.</p>
+                </div>
+                <div className="flex gap-2 justify-end pt-1">
+                  <Button variant="ghost" onClick={() => setCreatingNew(false)} disabled={savingNewUser}>Volver</Button>
+                  <Button onClick={createAndLink} disabled={savingNewUser} className="flex items-center gap-1">
+                    {savingNewUser ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+                    Crear y vincular
+                  </Button>
+                </div>
+              </div>
+            )}
           </div>
         </Modal>
       )}
