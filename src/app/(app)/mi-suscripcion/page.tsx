@@ -22,6 +22,7 @@ export default function MiSuscripcionPage() {
   const [loading, setLoading] = useState(true)
   const [cancelando, setCancelando] = useState(false)
   const [confirmCancelar, setConfirmCancelar] = useState(false)
+  const [clubPhone, setClubPhone] = useState('')
 
   const loadData = useCallback(async () => {
     if (!user) return
@@ -53,6 +54,15 @@ export default function MiSuscripcionPage() {
       .eq('club_id', 1)
       .eq('status', 'active')
     setCredits((credData || []) as unknown as typeof credits)
+
+    // Club phone
+    const { data: phoneRow } = await supabase
+      .from('nm_club_config')
+      .select('value')
+      .eq('club_id', 1)
+      .eq('key', 'club_phone')
+      .maybeSingle()
+    if (phoneRow?.value) setClubPhone(phoneRow.value)
 
     setLoading(false)
   }, [user])
@@ -142,13 +152,15 @@ export default function MiSuscripcionPage() {
                 Cancelar suscripción
               </Button>
             )}
-            <a
-              href="tel:+34000000000"
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-700/50 text-slate-300 hover:bg-slate-700 hover:text-white text-sm font-medium transition-colors"
-            >
-              <Phone size={14} />
-              Contactar recepción
-            </a>
+            {clubPhone && (
+              <a
+                href={`tel:${clubPhone}`}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-700/50 text-slate-300 hover:bg-slate-700 hover:text-white text-sm font-medium transition-colors"
+              >
+                <Phone size={14} />
+                Contactar recepción
+              </a>
+            )}
             <p className="text-xs text-slate-500">Para cambiar de plan, contactá a recepción.</p>
           </div>
         </Card>
