@@ -1,10 +1,10 @@
 'use client'
 
 import { useEffect, useState, useCallback, useRef } from 'react'
-import { useParams } from 'next/navigation'
+import { useParams, useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import { TournamentBracket } from '@/components/tournament-bracket'
-import type { BracketMatch } from '@/components/tournament-bracket'
+import { TournamentBracket, BracketConfigPanel } from '@/components/tournament-bracket'
+import type { BracketMatch, BracketConfig } from '@/components/tournament-bracket'
 import {
   Trophy,
   Loader2,
@@ -14,6 +14,7 @@ import {
   Users,
   Repeat2,
   Play,
+  Settings,
 } from 'lucide-react'
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
@@ -242,11 +243,34 @@ function LiveClock() {
 
 // ─── Page ──────────────────────────────────────────────────────────────────────
 
-const AUTO_CYCLE_INTERVAL = 30_000 // ms
+const DEFAULT_CYCLE_INTERVAL = 30_000 // ms
+
+// Parse query params into BracketConfig overrides
+function parseConfigFromParams(sp: URLSearchParams): Partial<BracketConfig> {
+  const cfg: Partial<BracketConfig> = {}
+  const theme = sp.get('theme')
+  if (theme === 'dark' || theme === 'neon' || theme === 'classic' || theme === 'padel') cfg.theme = theme
+  const view = sp.get('view')
+  if (view === 'tree' || view === 'table' || view === 'cards' || view === 'compact' || view === 'timeline') cfg.viewMode = view
+  const size = sp.get('size')
+  if (size === 'sm' || size === 'md' || size === 'lg') cfg.cardSize = size
+  if (sp.has('scores')) cfg.showScores = sp.get('scores') === '1'
+  if (sp.has('timers')) cfg.showTimers = sp.get('timers') === '1'
+  if (sp.has('courts')) cfg.showCourts = sp.get('courts') === '1'
+  if (sp.has('rounds')) cfg.showRoundHeaders = sp.get('rounds') === '1'
+  if (sp.has('byes')) cfg.showByes = sp.get('byes') === '1'
+  if (sp.has('anims')) cfg.animationsEnabled = sp.get('anims') === '1'
+  return cfg
+}
 
 export default function TorneoLivePage() {
   const params = useParams()
+  const searchParams = useSearchParams()
   const id = Number(params.id)
+
+  // Parse URL config
+  const urlConfig = parseConfigFromParams(searchParams)
+  const cycleParam = searchParams.get('cycle')
 
   const [tournament, setTournament] = useState<Tournament | null>(null)
   const [categories, setCategories] = useState<Category[]>([])
@@ -254,8 +278,15 @@ export default function TorneoLivePage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [activeCategory, setActiveCategory] = useState<number | null>(null)
-  const [autoCycle, setAutoCycle] = useState(false)
+  const [autoCycle, setAutoCycle] = useState(cycleParam !== null)
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
+  const [bracketConfig, setBracketConfig] = useState<BracketConfig>({
+    viewMode: 'tree', theme: 'neon', cardSize: 'md',
+    showScores: true, showTimers: true, showCourts: true,
+    showRoundHeaders: true, showByes: false, animationsEnabled: true,
+    ...urlConfig,
+  })
+  const [showConfig, setShowConfig] = useState(false)
 
   const activeCategoryRef = useRef(activeCategory)
   const categoriesRef = useRef(categories)
@@ -334,9 +365,9 @@ export default function TorneoLivePage() {
       const idx = cats.findIndex((c) => c.id === current)
       const next = cats[(idx + 1) % cats.length]
       setActiveCategory(next.id)
-    }, AUTO_CYCLE_INTERVAL)
+    }, cycleParam ? Number(cycleParam) * 1000 : DEFAULT_CYCLE_INTERVAL)
     return () => clearInterval(interval)
-  }, [autoCycle])
+  }, [autoCycle, cycleParam])
 
   // ─── Derived ─────────────────────────────────────────────────────────────────
 
@@ -425,6 +456,20 @@ export default function TorneoLivePage() {
             </button>
           )}
 
+          {/* Config toggle */}
+          <button
+            onClick={() => setShowConfig(v => !v)}
+            title="Configuración de vista"
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+              showConfig
+                ? 'bg-amber-500/20 text-amber-400 border border-amber-500/40'
+                : 'bg-slate-800 text-slate-500 border border-slate-700 hover:text-slate-300'
+            }`}
+          >
+            <Settings className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Vista</span>
+          </button>
+
           {/* TV / live indicator */}
           <span className="flex items-center gap-1.5 text-xs text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded-full border border-emerald-500/20">
             <Tv2 className="w-3.5 h-3.5" />
@@ -476,6 +521,13 @@ export default function TorneoLivePage() {
         </div>
       )}
 
+      {/* ── Config panel (collapsible) ─────────────────────────────────────── */}
+      {showConfig && (
+        <div className="flex-shrink-0 px-4 py-3 bg-slate-900/60 border-b border-slate-800/60">
+          <BracketConfigPanel config={bracketConfig} onChange={setBracketConfig} />
+        </div>
+      )}
+
       {/* ── Bracket ─────────────────────────────────────────────────────────── */}
       <main className="flex-1 overflow-auto px-4 py-6">
         {bracketMatches.length === 0 ? (
@@ -487,8 +539,8 @@ export default function TorneoLivePage() {
           <TournamentBracket
             matches={bracketMatches}
             totalRounds={totalRounds}
-            compact
             liveHighlight
+            config={bracketConfig}
           />
         )}
       </main>

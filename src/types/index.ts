@@ -827,3 +827,196 @@ export interface RecoverySession {
   user?: User
   assigned_staff?: User
 }
+
+// ─── Dashboard ───────────────────────────────────────────────────────────────
+
+export interface DashboardConfig {
+  id: number
+  club_id: number
+  user_id: string
+  dashboard_type: 'admin' | 'player'
+  layout: DashboardWidgetLayout[]
+  theme: DashboardThemeConfig
+  sidebar_collapsed: boolean
+  default_page: string | null
+  quick_actions: QuickAction[]
+  created_at: string
+  updated_at: string
+}
+
+export interface DashboardWidgetLayout {
+  widget_id: string
+  visible: boolean
+  order: number
+  size: 'sm' | 'md' | 'lg' | 'full'
+  config: Record<string, unknown>
+}
+
+export interface DashboardThemeConfig {
+  accentColor?: string
+  cardStyle?: 'default' | 'glass' | 'solid' | 'minimal'
+  compactMode?: boolean
+  columns?: 2 | 3 | 4
+  kpiHeight?: 'sm' | 'md' | 'lg'
+  animationsEnabled?: boolean
+}
+
+export interface QuickAction {
+  action_id: string
+  label: string
+  visible: boolean
+  order: number
+}
+
+export interface DashboardWidgetDef {
+  id: string
+  dashboard_type: string
+  name: string
+  description: string | null
+  category: 'kpi' | 'live' | 'chart' | 'list' | 'action'
+  default_size: string
+  default_visible: boolean
+  default_order: number
+  icon: string | null
+  min_role: string
+  is_active: boolean
+  config_schema: Record<string, unknown>
+}
+
+// ─── Staff Control ───────────────────────────────────────────────────────────
+
+export interface StaffCredential {
+  id: number
+  club_id: number
+  user_id: string
+  type: 'pin' | 'nfc' | 'fingerprint' | 'facial'
+  credential_data: string
+  is_active: boolean
+  created_at: string
+  last_used_at: string | null
+  expires_at: string | null
+}
+
+export interface CashClosing {
+  id: number
+  club_id: number
+  shift_id: number | null
+  closed_by: string
+  opened_at: string
+  closed_at: string
+  expected_cash: number
+  expected_card: number
+  expected_transfer: number
+  expected_bizum: number
+  expected_total: number
+  actual_cash: number
+  actual_card: number
+  actual_transfer: number
+  actual_bizum: number
+  actual_total: number
+  diff_cash: number
+  diff_card: number
+  diff_transfer: number
+  diff_bizum: number
+  diff_total: number
+  total_transactions: number
+  total_bookings: number
+  total_sales: number
+  notes: string | null
+  status: 'open' | 'closed' | 'reviewed' | 'approved'
+  reviewed_by: string | null
+  reviewed_at: string | null
+  created_at: string
+}
+
+export interface StockSnapshot {
+  id: number
+  club_id: number
+  cash_closing_id: number | null
+  taken_by: string
+  taken_at: string
+  items: StockSnapshotItem[]
+  total_products: number
+  products_with_diff: number
+  notes: string | null
+  status: 'pending' | 'reviewed' | 'approved'
+}
+
+export interface StockSnapshotItem {
+  product_id: number
+  product_name: string
+  expected_stock: number
+  actual_stock: number
+  difference: number
+}
+
+export interface ShiftHandover {
+  id: number
+  club_id: number
+  outgoing_user_id: string
+  incoming_user_id: string
+  outgoing_shift_id: number | null
+  incoming_shift_id: number | null
+  cash_closing_id: number | null
+  stock_snapshot_id: number | null
+  handover_at: string
+  notes: string | null
+  checklist: HandoverChecklistItem[]
+  status: 'in_progress' | 'completed' | 'flagged'
+  created_at: string
+}
+
+export interface HandoverChecklistItem {
+  item: string
+  done: boolean
+}
+
+// ─── Gym Access Control ──────────────────────────────────────────────────────
+
+export interface GymAccessLog {
+  id: number
+  club_id: number
+  user_id: string
+  membership_id: number | null
+  access_point_id: number | null
+  auth_method: 'qr' | 'nfc' | 'pin' | 'fingerprint' | 'facial' | 'manual'
+  direction: 'in' | 'out'
+  granted: boolean
+  denial_reason: string | null
+  check_in_at: string
+  check_out_at: string | null
+  duration_minutes: number | null
+  zone: string | null
+  created_at: string
+}
+
+export interface GymStaffActivity {
+  id: number
+  club_id: number
+  user_id: string
+  shift_id: number | null
+  action_type: string
+  description: string | null
+  reference_type: string | null
+  reference_id: number | null
+  metadata: Record<string, unknown>
+  created_at: string
+}
+
+export interface StaffTimeSummary {
+  id: number
+  club_id: number
+  user_id: string
+  year: number
+  month: number
+  total_shifts: number
+  total_minutes: number
+  overtime_minutes: number
+  break_minutes: number
+  net_minutes: number
+  absences: number
+  late_arrivals: number
+  early_departures: number
+  avg_shift_minutes: number
+  computed_at: string
+}

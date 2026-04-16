@@ -3,8 +3,8 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import { TournamentBracket } from '@/components/tournament-bracket'
-import type { BracketMatch } from '@/components/tournament-bracket'
+import { TournamentBracket, BracketConfigPanel } from '@/components/tournament-bracket'
+import type { BracketMatch, BracketConfig } from '@/components/tournament-bracket'
 import {
   Trophy,
   CalendarDays,
@@ -126,6 +126,11 @@ export default function TorneoPublicPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [activeCategory, setActiveCategory] = useState<number | null>(null)
+  const [bracketConfig, setBracketConfig] = useState<BracketConfig>({
+    viewMode: 'tree', theme: 'dark', cardSize: 'md',
+    showScores: true, showTimers: true, showCourts: true,
+    showRoundHeaders: true, showByes: true, animationsEnabled: true,
+  })
 
   const supabase = createClient()
 
@@ -283,12 +288,15 @@ export default function TorneoPublicPage() {
             <p className="text-sm">El cuadro todavia no tiene partidos.</p>
           </div>
         ) : (
-          <TournamentBracket
-            matches={bracketMatches}
-            totalRounds={totalRounds}
-            compact
-            liveHighlight
-          />
+          <div className="space-y-4">
+            <BracketConfigPanel config={bracketConfig} onChange={setBracketConfig} />
+            <TournamentBracket
+              matches={bracketMatches}
+              totalRounds={totalRounds}
+              liveHighlight
+              config={bracketConfig}
+            />
+          </div>
         )}
       </div>
 

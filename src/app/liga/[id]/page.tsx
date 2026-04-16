@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useParams } from 'next/navigation'
 import { Trophy, Users, CalendarDays, Medal, Layers, ListOrdered, Loader2, Shield } from 'lucide-react'
+import { LeagueMatchGrid } from '@/components/league-match-grid'
 
 interface League {
   id: number
@@ -223,6 +224,15 @@ export default function LigaPublicaPage() {
                   </div>
                 </Card>
               </div>
+            )}
+
+            {/* Vista visual de partidos */}
+            {cat && catMatches.length > 0 && (
+              <LeagueMatchGrid
+                teams={catTeams}
+                rounds={catRounds}
+                matches={catMatches}
+              />
             )}
 
             {/* Jornadas */}

@@ -19,7 +19,9 @@ import {
   ChevronRight,
   Loader2,
   ClipboardList,
+  GitBranch,
 } from 'lucide-react'
+import Link from 'next/link'
 
 // ─── Constantes ─────────────────────────────────────────────────────────────
 
@@ -464,11 +466,17 @@ function TournamentCard({ tournament: t, onInscribirse, statusVariant }: Tournam
         </div>
       </div>
 
-      {/* Botón */}
-      <div className="mt-auto pt-2">
+      {/* Botones */}
+      <div className="mt-auto pt-2 flex gap-2">
+        <Link
+          href={`/torneo/${t.id}`}
+          className="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-cyan-400 bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/20 transition-colors"
+        >
+          <GitBranch size={13} /> Bracket
+        </Link>
         <Button
           size="sm"
-          className="w-full"
+          className="flex-1"
           onClick={onInscribirse}
           disabled={
             !!(t.max_teams && t.teams_count >= t.max_teams)

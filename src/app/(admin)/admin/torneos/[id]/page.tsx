@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { useParams, useRouter } from 'next/navigation'
 import {
   ArrowLeft, Trophy, Users, CalendarDays, Loader2, Save,
-  Play, Square, RotateCcw, Clock, Swords,
+  Play, Square, RotateCcw, Clock, Swords, Monitor, ExternalLink, Settings,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useRealtimeRefresh } from '@/hooks/use-realtime-refresh'
@@ -16,8 +16,8 @@ import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
 import { Modal } from '@/components/ui/modal'
 import { useToast } from '@/components/ui/toast'
-import { TournamentBracket } from '@/components/tournament-bracket'
-import type { BracketMatch } from '@/components/tournament-bracket'
+import { TournamentBracket, BracketConfigPanel } from '@/components/tournament-bracket'
+import type { BracketMatch, BracketConfig } from '@/components/tournament-bracket'
 import { formatDate, STATUS_LABELS } from '@/lib/utils'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -138,6 +138,7 @@ export default function TorneoDetallePage() {
 
   // Generating bracket
   const [generatingBracket, setGeneratingBracket] = useState(false)
+  const [bracketConfig, setBracketConfig] = useState<BracketConfig>({ viewMode: 'tree', theme: 'dark', cardSize: 'md', showScores: true, showTimers: true, showCourts: true, showRoundHeaders: true, showByes: true, animationsEnabled: true })
 
   // ─── Data loading ──────────────────────────────────────────────────────────
 
@@ -439,7 +440,29 @@ export default function TorneoDetallePage() {
             {tournament.end_date && ` → ${formatDate(tournament.end_date)}`}
           </p>
         </div>
-        {statusBadge(tournament.status)}
+        <div className="flex items-center gap-2 shrink-0">
+          {statusBadge(tournament.status)}
+          <Link
+            href={`/torneo/${tournament.id}`}
+            target="_blank"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-slate-300 bg-slate-700/50 hover:bg-slate-700 hover:text-white border border-slate-600/50 transition-colors"
+          >
+            <ExternalLink size={13} /> Público
+          </Link>
+          <Link
+            href={`/torneo/${tournament.id}/live`}
+            target="_blank"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-green-400 bg-green-500/10 hover:bg-green-500/20 border border-green-500/20 transition-colors"
+          >
+            <Monitor size={13} /> TV en Vivo
+          </Link>
+          <Link
+            href={`/admin/torneos/${tournament.id}/pantalla`}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-amber-400 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/20 transition-colors"
+          >
+            <Settings size={13} /> Configurar
+          </Link>
+        </div>
       </div>
 
       {/* ── KPIs ───────────────────────────────────────────────────────────── */}
@@ -652,14 +675,18 @@ export default function TorneoDetallePage() {
 
           {/* Bracket display */}
           {hasBracket && (
-            <Card>
-              <TournamentBracket
-                matches={bracketMatches}
-                totalRounds={totalRounds}
-                onMatchClick={openScoreModal}
-                liveHighlight
-              />
-            </Card>
+            <div className="space-y-3">
+              <BracketConfigPanel config={bracketConfig} onChange={setBracketConfig} />
+              <Card>
+                <TournamentBracket
+                  matches={bracketMatches}
+                  totalRounds={totalRounds}
+                  onMatchClick={openScoreModal}
+                  liveHighlight
+                  config={bracketConfig}
+                />
+              </Card>
+            </div>
           )}
         </div>
       )}

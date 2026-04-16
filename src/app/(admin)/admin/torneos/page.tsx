@@ -1,7 +1,8 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import { Trophy, Plus, Users, CalendarDays, DollarSign, Loader2, Pencil, Trash2, ChevronRight } from 'lucide-react'
+import { Trophy, Plus, Users, CalendarDays, DollarSign, Loader2, Pencil, Trash2, ChevronRight, GitBranch } from 'lucide-react'
+import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -567,7 +568,16 @@ export default function GestionTorneosPage() {
                   <span className="text-xs text-slate-500">
                     {t.prize_pool > 0 ? `Premio: ${formatCurrency(t.prize_pool)}` : 'Sin premio en metálico'}
                   </span>
-                  <Pencil size={13} className="text-slate-600 group-hover:text-cyan-400 transition-colors" />
+                  <div className="flex items-center gap-2">
+                    <Link
+                      href={`/admin/torneos/${t.id}`}
+                      onClick={e => e.stopPropagation()}
+                      className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium text-cyan-400 bg-cyan-500/10 hover:bg-cyan-500/20 transition-colors"
+                    >
+                      <GitBranch size={12} /> Bracket
+                    </Link>
+                    <Pencil size={13} className="text-slate-600 group-hover:text-cyan-400 transition-colors" />
+                  </div>
                 </div>
               </button>
             )

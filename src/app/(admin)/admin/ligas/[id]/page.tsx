@@ -16,6 +16,7 @@ import { Input } from '@/components/ui/input'
 import { Modal } from '@/components/ui/modal'
 import { useToast } from '@/components/ui/toast'
 import { formatDate } from '@/lib/utils'
+import { LeagueMatchGrid } from '@/components/league-match-grid'
 
 interface League {
   id: number
@@ -576,6 +577,19 @@ export default function LigaDetallePage() {
                 </div>
               </Card>
             </div>
+          )}
+
+          {/* Vista visual de partidos */}
+          {cat && matches.filter(m => m.category_id === cat.id).length > 0 && (
+            <LeagueMatchGrid
+              teams={catTeams}
+              rounds={catRounds}
+              matches={matches.filter(m => m.category_id === cat.id)}
+              onMatchClick={(matchId) => {
+                const m = matches.find(x => x.id === matchId)
+                if (m) openEditMatch(m)
+              }}
+            />
           )}
 
           {/* Jornadas */}

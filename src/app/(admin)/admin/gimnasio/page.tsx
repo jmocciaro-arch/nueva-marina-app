@@ -15,6 +15,17 @@ import {
   Tag,
   Edit3,
   Trash2,
+  Shield,
+  Fingerprint,
+  Smartphone,
+  Key,
+  Wifi,
+  Hand,
+  QrCode,
+  ArrowDownToLine,
+  ArrowUpFromLine,
+  AlertCircle,
+  UserCheck,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { lookupPrice } from '@/lib/api/pricing'
@@ -74,6 +85,32 @@ const SESSION_TYPE_OPTIONS = [
   { value: 'personal', label: 'Personal' },
 ]
 
+const ZONE_OPTIONS = [
+  { value: '', label: '— Sin zona —' },
+  { value: 'sala_musculacion', label: 'Sala Musculación' },
+  { value: 'sala_cardio', label: 'Cardio' },
+  { value: 'piscina', label: 'Piscina' },
+  { value: 'spa', label: 'Spa/Sauna' },
+  { value: 'clases', label: 'Sala de Clases' },
+]
+
+const ZONE_LABELS: Record<string, string> = {
+  sala_musculacion: 'Sala Musculación',
+  sala_cardio: 'Cardio',
+  piscina: 'Piscina',
+  spa: 'Spa/Sauna',
+  clases: 'Sala de Clases',
+}
+
+const AUTH_METHOD_OPTIONS = [
+  { value: 'manual', label: 'Manual' },
+  { value: 'qr', label: 'QR' },
+  { value: 'nfc', label: 'NFC' },
+  { value: 'pin', label: 'PIN' },
+  { value: 'fingerprint', label: 'Huella' },
+  { value: 'facial', label: 'Facial' },
+]
+
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
 interface GymUser {
@@ -118,6 +155,38 @@ interface GymSession {
   nm_users?: { full_name: string } | null
 }
 
+interface GymAccessLogRow {
+  id: number
+  club_id: number
+  user_id: string
+  membership_id: number | null
+  access_point_id: number | null
+  auth_method: string
+  direction: 'in' | 'out'
+  granted: boolean
+  denial_reason: string | null
+  check_in_at: string
+  check_out_at: string | null
+  duration_minutes: number | null
+  zone: string | null
+  created_at: string
+  nm_users?: { full_name: string } | null
+}
+
+interface GymStaffActivityRow {
+  id: number
+  club_id: number
+  user_id: string
+  shift_id: number | null
+  action_type: string
+  description: string | null
+  reference_type: string | null
+  reference_id: number | null
+  metadata: Record<string, unknown>
+  created_at: string
+  nm_users?: { full_name: string } | null
+}
+
 // ─── Forms vacíos ─────────────────────────────────────────────────────────────
 
 const MEMBERSHIP_FORM_EMPTY = {
@@ -147,9 +216,17 @@ const SESSION_FORM_EMPTY = {
   check_in: new Date().toISOString().slice(0, 16),
 }
 
+const ACCESS_LOG_FORM_EMPTY = {
+  user_id: '',
+  auth_method: 'manual',
+  direction: 'in' as 'in' | 'out',
+  zone: '',
+}
+
 type MembershipForm = typeof MEMBERSHIP_FORM_EMPTY
 type ClassForm = typeof CLASS_FORM_EMPTY
 type SessionForm = typeof SESSION_FORM_EMPTY
+type AccessLogForm = typeof ACCESS_LOG_FORM_EMPTY
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -191,7 +268,7 @@ export default function GestionGimnasioPage() {
   const [sessionRuleLoading, setSessionRuleLoading] = useState(false)
 
   // Tabs
-  const [activeTab, setActiveTab] = useState<'membresias' | 'clases' | 'sesiones'>('membresias')
+  const [activeTab, setActiveTab] = useState<'membresias' | 'clases' | 'sesiones' | 'personal'>('membresias')
 
   // Datos
   const [memberships, setMemberships] = useState<Membership[]>([])
@@ -199,6 +276,13 @@ export default function GestionGimnasioPage() {
   const [sessions, setSessions] = useState<GymSession[]>([])
   const [users, setUsers] = useState<GymUser[]>([])
   const [loading, setLoading] = useState(true)
+
+  // Control de Personal
+  const [accessLogs, setAccessLogs] = useState<GymAccessLogRow[]>([])
+  const [staffActivity, setStaffActivity] = useState<GymStaffActivityRow[]>([])
+  const [accessLogForm, setAccessLogForm] = useState<AccessLogForm>(ACCESS_LOG_FORM_EMPTY)
+  const [savingAccessLog, setSavingAccessLog] = useState(false)
+  const [now, setNow] = useState(new Date())
 
   // Modales
   const [membershipModal, setMembershipModal] = useState(false)
@@ -227,7 +311,7 @@ export default function GestionGimnasioPage() {
 
     const today = todayISO()
 
-    const [membRes, classRes, sessRes, usersRes] = await Promise.all([
+    const [membRes, classRes, sessRes, usersRes, accessRes, staffActRes] = await Promise.all([
       supabase
         .from('nm_gym_memberships')
         .select('*, nm_users(full_name)')
@@ -251,6 +335,20 @@ export default function GestionGimnasioPage() {
         .select('id, full_name')
         .eq('club_id', CLUB_ID)
         .order('full_name', { ascending: true }),
+      supabase
+        .from('nm_gym_access_logs')
+        .select('*, nm_users(full_name)')
+        .eq('club_id', CLUB_ID)
+        .gte('check_in_at', `${today}T00:00:00`)
+        .lte('check_in_at', `${today}T23:59:59`)
+        .order('check_in_at', { ascending: false }),
+      supabase
+        .from('nm_gym_staff_activity')
+        .select('*, nm_users(full_name)')
+        .eq('club_id', CLUB_ID)
+        .gte('created_at', `${today}T00:00:00`)
+        .lte('created_at', `${today}T23:59:59`)
+        .order('created_at', { ascending: false }),
     ])
 
     if (membRes.error) toast('error', 'Error al cargar membresías')
@@ -265,12 +363,21 @@ export default function GestionGimnasioPage() {
     if (usersRes.error) toast('error', 'Error al cargar usuarios')
     else setUsers((usersRes.data as GymUser[]) ?? [])
 
+    if (!accessRes.error) setAccessLogs((accessRes.data as GymAccessLogRow[]) ?? [])
+    if (!staffActRes.error) setStaffActivity((staffActRes.data as GymStaffActivityRow[]) ?? [])
+
     setLoading(false)
   }, [toast])
 
   useEffect(() => {
     loadAll()
   }, [loadAll])
+
+  // Timer live para duración de personas adentro
+  useEffect(() => {
+    const interval = setInterval(() => setNow(new Date()), 30000)
+    return () => clearInterval(interval)
+  }, [])
 
   // Lookup precio para membresía
   useEffect(() => {
@@ -322,6 +429,59 @@ export default function GestionGimnasioPage() {
     return () => { cancelled = true }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionModal, sessionForm.type, sessionForm.check_in, member?.role])
+
+  // ─── Control Personal: checkout ──────────────────────────────────────────────
+
+  async function handleAccessCheckout(id: number) {
+    const supabase = createClient()
+    const log = accessLogs.find(l => l.id === id)
+    const durationMinutes = log
+      ? Math.round((now.getTime() - new Date(log.check_in_at).getTime()) / 60000)
+      : null
+    const { error } = await supabase
+      .from('nm_gym_access_logs')
+      .update({ check_out_at: now.toISOString(), duration_minutes: durationMinutes })
+      .eq('id', id)
+    if (error) {
+      toast('error', 'No se pudo registrar el check-out')
+    } else {
+      toast('success', 'Check-out registrado')
+      loadAll()
+    }
+  }
+
+  // ─── Control Personal: registrar acceso manual ────────────────────────────────
+
+  async function handleRegistrarAcceso() {
+    if (!accessLogForm.user_id) {
+      toast('warning', 'Seleccioná un usuario')
+      return
+    }
+    const supabase = createClient()
+    setSavingAccessLog(true)
+    const { error } = await supabase.from('nm_gym_access_logs').insert({
+      club_id: CLUB_ID,
+      user_id: accessLogForm.user_id,
+      auth_method: accessLogForm.auth_method,
+      direction: accessLogForm.direction,
+      zone: accessLogForm.zone || null,
+      granted: true,
+      check_in_at: new Date().toISOString(),
+      check_out_at: null,
+      duration_minutes: null,
+      denial_reason: null,
+      membership_id: null,
+      access_point_id: null,
+    })
+    if (error) {
+      toast('error', 'No se pudo registrar el acceso')
+    } else {
+      toast('success', 'Acceso registrado')
+      setAccessLogForm(ACCESS_LOG_FORM_EMPTY)
+      loadAll()
+    }
+    setSavingAccessLog(false)
+  }
 
   // ─── KPIs ─────────────────────────────────────────────────────────────────────
 
@@ -652,19 +812,22 @@ export default function GestionGimnasioPage() {
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-1 border-b border-slate-700">
-        {(['membresias', 'clases', 'sesiones'] as const).map(tab => (
+      <div className="flex gap-1 border-b border-slate-700 overflow-x-auto">
+        {(['membresias', 'clases', 'sesiones', 'personal'] as const).map(tab => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
             className={[
-              'px-4 py-2.5 text-sm font-medium transition-colors border-b-2 -mb-px',
+              'px-4 py-2.5 text-sm font-medium transition-colors border-b-2 -mb-px whitespace-nowrap',
               activeTab === tab
                 ? 'border-cyan-500 text-cyan-400'
                 : 'border-transparent text-slate-400 hover:text-slate-200',
             ].join(' ')}
           >
-            {tab === 'membresias' ? 'Membresías' : tab === 'clases' ? 'Clases' : 'Sesiones'}
+            {tab === 'membresias' ? 'Membresías'
+              : tab === 'clases' ? 'Clases'
+              : tab === 'sesiones' ? 'Sesiones'
+              : 'Control de Personal'}
           </button>
         ))}
       </div>
@@ -712,6 +875,19 @@ export default function GestionGimnasioPage() {
               }}
               onCheckout={handleCheckout}
               onDelete={handleDeleteSession}
+            />
+          )}
+          {activeTab === 'personal' && (
+            <StaffControlTab
+              accessLogs={accessLogs}
+              staffActivity={staffActivity}
+              users={users}
+              accessLogForm={accessLogForm}
+              setAccessLogForm={setAccessLogForm}
+              savingAccessLog={savingAccessLog}
+              onRegistrarAcceso={handleRegistrarAcceso}
+              onAccessCheckout={handleAccessCheckout}
+              now={now}
             />
           )}
         </>
@@ -1279,6 +1455,348 @@ function SessionsTab({
           </table>
         </div>
       )}
+    </div>
+  )
+}
+
+// ─── Tab: Control de Personal ────────────────────────────────────────────────
+
+function authMethodIcon(method: string) {
+  const cls = 'inline-block'
+  switch (method) {
+    case 'qr': return <QrCode size={14} className={cls} />
+    case 'nfc': return <Wifi size={14} className={cls} />
+    case 'pin': return <Key size={14} className={cls} />
+    case 'fingerprint': return <Fingerprint size={14} className={cls} />
+    case 'facial': return <Smartphone size={14} className={cls} />
+    default: return <Hand size={14} className={cls} />
+  }
+}
+
+function actionTypeColor(action: string): string {
+  if (action.includes('check') || action.includes('access')) return 'text-cyan-400'
+  if (action.includes('open') || action.includes('start')) return 'text-green-400'
+  if (action.includes('close') || action.includes('end')) return 'text-orange-400'
+  if (action.includes('deny') || action.includes('error')) return 'text-red-400'
+  if (action.includes('sale') || action.includes('cash')) return 'text-yellow-400'
+  return 'text-slate-300'
+}
+
+function elapsedLabel(checkInAt: string, now: Date): string {
+  const mins = Math.round((now.getTime() - new Date(checkInAt).getTime()) / 60000)
+  if (mins < 60) return `${mins} min`
+  const h = Math.floor(mins / 60)
+  const m = mins % 60
+  return `${h}h ${m}m`
+}
+
+function StaffControlTab({
+  accessLogs,
+  staffActivity,
+  users,
+  accessLogForm,
+  setAccessLogForm,
+  savingAccessLog,
+  onRegistrarAcceso,
+  onAccessCheckout,
+  now,
+}: {
+  accessLogs: GymAccessLogRow[]
+  staffActivity: GymStaffActivityRow[]
+  users: GymUser[]
+  accessLogForm: AccessLogForm
+  setAccessLogForm: React.Dispatch<React.SetStateAction<AccessLogForm>>
+  savingAccessLog: boolean
+  onRegistrarAcceso: () => void
+  onAccessCheckout: (id: number) => void
+  now: Date
+}) {
+  const presentes = accessLogs.filter(l => l.direction === 'in' && l.granted && !l.check_out_at)
+  const totalEntradas = accessLogs.filter(l => l.direction === 'in').length
+  const denegados = accessLogs.filter(l => !l.granted).length
+  const logsConDuracion = accessLogs.filter(l => l.duration_minutes != null)
+  const avgDuracion = logsConDuracion.length > 0
+    ? Math.round(logsConDuracion.reduce((sum, l) => sum + (l.duration_minutes ?? 0), 0) / logsConDuracion.length)
+    : 0
+
+  const userOptions = [
+    { value: '', label: '— Seleccioná un usuario —' },
+    ...users.map(u => ({ value: u.id, label: u.full_name })),
+  ]
+
+  return (
+    <div className="space-y-8">
+
+      {/* ─── Sección A: Personal Presente ─────────────────────────────────────── */}
+      <div className="space-y-3">
+        <div className="flex items-center gap-2">
+          <UserCheck size={18} className="text-cyan-400" />
+          <h3 className="text-base font-semibold text-white">Personal Presente</h3>
+          <span className="ml-1 rounded-full bg-cyan-500/20 px-2 py-0.5 text-xs font-medium text-cyan-300">
+            {presentes.length} dentro
+          </span>
+        </div>
+
+        {presentes.length === 0 ? (
+          <EmptyState icon={<Users size={32} />} label="No hay nadie en el gimnasio ahora mismo" />
+        ) : (
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {presentes.map(log => (
+              <div
+                key={log.id}
+                className="rounded-xl border border-cyan-500/20 bg-cyan-500/5 p-4 space-y-2"
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <p className="text-sm font-semibold text-white">
+                      {log.nm_users?.full_name ?? <span className="text-slate-500 italic">Sin nombre</span>}
+                    </p>
+                    {log.zone && (
+                      <p className="text-xs text-slate-400 mt-0.5">
+                        {ZONE_LABELS[log.zone] ?? log.zone}
+                      </p>
+                    )}
+                  </div>
+                  <span className="shrink-0 rounded-full bg-green-500/20 px-2 py-0.5 text-[10px] font-medium text-green-400">
+                    Adentro
+                  </span>
+                </div>
+                <div className="flex items-center gap-3 text-xs text-slate-400">
+                  <span className="flex items-center gap-1">
+                    <Clock size={11} />
+                    {new Date(log.check_in_at).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}
+                  </span>
+                  <span className="flex items-center gap-1 text-cyan-400">
+                    <Activity size={11} />
+                    {elapsedLabel(log.check_in_at, now)}
+                  </span>
+                  <span className="flex items-center gap-1">
+                    {authMethodIcon(log.auth_method)}
+                    <span className="capitalize">{log.auth_method}</span>
+                  </span>
+                </div>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => onAccessCheckout(log.id)}
+                  className="w-full justify-center"
+                >
+                  <LogOut size={13} />
+                  Checkout
+                </Button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* ─── Sección B: Accesos del Día ───────────────────────────────────────── */}
+      <div className="space-y-3">
+        <div className="flex items-center gap-2">
+          <Shield size={18} className="text-violet-400" />
+          <h3 className="text-base font-semibold text-white">Accesos del Día</h3>
+        </div>
+
+        {/* KPIs */}
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <div className="rounded-xl border border-slate-700/50 bg-slate-800/40 px-4 py-3 text-center">
+            <p className="text-2xl font-bold text-white">{totalEntradas}</p>
+            <p className="text-xs text-slate-400 mt-0.5">Total entradas</p>
+          </div>
+          <div className="rounded-xl border border-cyan-500/20 bg-cyan-500/5 px-4 py-3 text-center">
+            <p className="text-2xl font-bold text-cyan-400">{presentes.length}</p>
+            <p className="text-xs text-slate-400 mt-0.5">Presentes ahora</p>
+          </div>
+          <div className="rounded-xl border border-slate-700/50 bg-slate-800/40 px-4 py-3 text-center">
+            <p className="text-2xl font-bold text-white">{avgDuracion}</p>
+            <p className="text-xs text-slate-400 mt-0.5">Duración prom. (min)</p>
+          </div>
+          <div className="rounded-xl border border-red-500/20 bg-red-500/5 px-4 py-3 text-center">
+            <p className="text-2xl font-bold text-red-400">{denegados}</p>
+            <p className="text-xs text-slate-400 mt-0.5">Denegados</p>
+          </div>
+        </div>
+
+        {/* Tabla */}
+        {accessLogs.length === 0 ? (
+          <EmptyState icon={<Shield size={32} />} label="Sin registros de acceso hoy" />
+        ) : (
+          <div className="rounded-xl border border-slate-700/50 overflow-hidden">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-slate-700/50 bg-slate-800/80">
+                  <th className="px-4 py-3 text-left font-medium text-slate-400">Hora</th>
+                  <th className="px-4 py-3 text-left font-medium text-slate-400">Usuario</th>
+                  <th className="px-4 py-3 text-left font-medium text-slate-400">Método</th>
+                  <th className="px-4 py-3 text-left font-medium text-slate-400">Dir.</th>
+                  <th className="px-4 py-3 text-left font-medium text-slate-400">Duración</th>
+                  <th className="px-4 py-3 text-left font-medium text-slate-400">Estado</th>
+                </tr>
+              </thead>
+              <tbody>
+                {accessLogs.map((log, i) => (
+                  <tr
+                    key={log.id}
+                    className={[
+                      'border-b border-slate-700/30 last:border-0 transition-colors hover:bg-slate-800/40',
+                      i % 2 === 0 ? 'bg-slate-800/20' : 'bg-transparent',
+                    ].join(' ')}
+                  >
+                    <td className="px-4 py-2.5 text-slate-400 text-xs">
+                      {new Date(log.check_in_at).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}
+                    </td>
+                    <td className="px-4 py-2.5 text-white">
+                      {log.nm_users?.full_name ?? <span className="text-slate-500 italic">—</span>}
+                    </td>
+                    <td className="px-4 py-2.5">
+                      <span className="flex items-center gap-1.5 text-slate-300">
+                        {authMethodIcon(log.auth_method)}
+                        <span className="text-xs capitalize">{log.auth_method}</span>
+                      </span>
+                    </td>
+                    <td className="px-4 py-2.5">
+                      {log.direction === 'in' ? (
+                        <span className="flex items-center gap-1 text-green-400 text-xs">
+                          <ArrowDownToLine size={12} /> Entrada
+                        </span>
+                      ) : (
+                        <span className="flex items-center gap-1 text-orange-400 text-xs">
+                          <ArrowUpFromLine size={12} /> Salida
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-4 py-2.5 text-slate-400 text-xs">
+                      {log.duration_minutes != null
+                        ? `${log.duration_minutes} min`
+                        : !log.check_out_at && log.direction === 'in'
+                          ? <span className="text-cyan-400">{elapsedLabel(log.check_in_at, now)}</span>
+                          : <span className="text-slate-600">—</span>}
+                    </td>
+                    <td className="px-4 py-2.5">
+                      {log.granted ? (
+                        <span className="flex items-center gap-1 text-green-400 text-xs">
+                          <CheckCircle size={12} /> OK
+                        </span>
+                      ) : (
+                        <span className="flex items-center gap-1 text-red-400 text-xs" title={log.denial_reason ?? ''}>
+                          <AlertCircle size={12} /> Denegado
+                        </span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* ─── Sección C: Actividad del Staff ──────────────────────────────────── */}
+      <div className="space-y-3">
+        <div className="flex items-center gap-2">
+          <Activity size={18} className="text-yellow-400" />
+          <h3 className="text-base font-semibold text-white">Actividad del Staff</h3>
+        </div>
+
+        {staffActivity.length === 0 ? (
+          <EmptyState icon={<Activity size={32} />} label="Sin actividad registrada hoy" />
+        ) : (
+          <div className="rounded-xl border border-slate-700/50 overflow-hidden">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-slate-700/50 bg-slate-800/80">
+                  <th className="px-4 py-3 text-left font-medium text-slate-400">Hora</th>
+                  <th className="px-4 py-3 text-left font-medium text-slate-400">Staff</th>
+                  <th className="px-4 py-3 text-left font-medium text-slate-400">Acción</th>
+                  <th className="px-4 py-3 text-left font-medium text-slate-400">Descripción</th>
+                  <th className="px-4 py-3 text-left font-medium text-slate-400">Referencia</th>
+                </tr>
+              </thead>
+              <tbody>
+                {staffActivity.map((act, i) => (
+                  <tr
+                    key={act.id}
+                    className={[
+                      'border-b border-slate-700/30 last:border-0 transition-colors hover:bg-slate-800/40',
+                      i % 2 === 0 ? 'bg-slate-800/20' : 'bg-transparent',
+                    ].join(' ')}
+                  >
+                    <td className="px-4 py-2.5 text-slate-400 text-xs">
+                      {new Date(act.created_at).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}
+                    </td>
+                    <td className="px-4 py-2.5 text-white">
+                      {act.nm_users?.full_name ?? <span className="text-slate-500 italic">—</span>}
+                    </td>
+                    <td className="px-4 py-2.5">
+                      <span className={['text-xs font-medium capitalize', actionTypeColor(act.action_type)].join(' ')}>
+                        {act.action_type.replace(/_/g, ' ')}
+                      </span>
+                    </td>
+                    <td className="px-4 py-2.5 text-slate-400 text-xs max-w-[220px] truncate">
+                      {act.description ?? <span className="text-slate-600">—</span>}
+                    </td>
+                    <td className="px-4 py-2.5 text-slate-500 text-xs">
+                      {act.reference_type && act.reference_id
+                        ? `${act.reference_type} #${act.reference_id}`
+                        : <span className="text-slate-700">—</span>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* ─── Sección D: Registro de Acceso Manual ────────────────────────────── */}
+      <div className="space-y-3">
+        <div className="flex items-center gap-2">
+          <LogIn size={18} className="text-emerald-400" />
+          <h3 className="text-base font-semibold text-white">Registro de Acceso Manual</h3>
+        </div>
+
+        <div className="rounded-xl border border-slate-700/50 bg-slate-800/30 p-5">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <Select
+              id="access-user"
+              label="Usuario *"
+              value={accessLogForm.user_id}
+              options={userOptions}
+              onChange={e => setAccessLogForm(f => ({ ...f, user_id: e.target.value }))}
+            />
+            <Select
+              id="access-method"
+              label="Método"
+              value={accessLogForm.auth_method}
+              options={AUTH_METHOD_OPTIONS}
+              onChange={e => setAccessLogForm(f => ({ ...f, auth_method: e.target.value }))}
+            />
+            <Select
+              id="access-direction"
+              label="Dirección"
+              value={accessLogForm.direction}
+              options={[
+                { value: 'in', label: 'Entrada' },
+                { value: 'out', label: 'Salida' },
+              ]}
+              onChange={e => setAccessLogForm(f => ({ ...f, direction: e.target.value as 'in' | 'out' }))}
+            />
+            <Select
+              id="access-zone"
+              label="Zona"
+              value={accessLogForm.zone}
+              options={ZONE_OPTIONS}
+              onChange={e => setAccessLogForm(f => ({ ...f, zone: e.target.value }))}
+            />
+          </div>
+          <div className="mt-4 flex justify-end">
+            <Button loading={savingAccessLog} onClick={onRegistrarAcceso}>
+              <LogIn size={14} />
+              Registrar acceso
+            </Button>
+          </div>
+        </div>
+      </div>
     </div>
   )
 }
