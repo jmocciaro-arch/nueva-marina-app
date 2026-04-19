@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { useParams, useRouter } from 'next/navigation'
 import {
   ArrowLeft, Trophy, Users, CalendarDays, Save, Loader2,
-  Pencil, Layers, ListOrdered, Medal, Download, Upload, Share2, Copy, ExternalLink,
+  Pencil, Layers, ListOrdered, Medal, Download, Upload, Share2, Copy, ExternalLink, Trash2,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useRealtimeRefresh } from '@/hooks/use-realtime-refresh'
@@ -122,6 +122,9 @@ export default function LigaDetallePage() {
   // Compartir link público
   const [sharingPublic, setSharingPublic] = useState(false)
 
+  // Borrar equipo (duplicados, etc.)
+  const [deletingTeamId, setDeletingTeamId] = useState<number | null>(null)
+
   const load = useCallback(async () => {
     setLoading(true)
     const supabase = createClient()
@@ -221,6 +224,64 @@ export default function LigaDetallePage() {
     setLinkSearch('')
     setSavingNewUser(false)
     load()
+  }
+
+  async function deleteTeam(team: Team) {
+    const label = team.team_name ?? `(equipo #${team.id})`
+    const supabase = createClient()
+
+    // contar partidos que referencian este equipo
+    const [lmCount, pmCount] = await Promise.all([
+      supabase
+        .from('nm_league_matches')
+        .select('id', { count: 'exact', head: true })
+        .or(`team1_id.eq.${team.id},team2_id.eq.${team.id}`),
+      supabase
+        .from('nm_league_playoff_matches')
+        .select('id', { count: 'exact', head: true })
+        .or(`team1_id.eq.${team.id},team2_id.eq.${team.id}`),
+    ])
+    const totalMatches = (lmCount.count ?? 0) + (pmCount.count ?? 0)
+
+    const msg = totalMatches > 0
+      ? `El equipo "${label}" tiene ${totalMatches} partido(s) asociado(s).\n` +
+        `Si lo borrás, se van a eliminar también esos partidos y sus resultados.\n\n` +
+        `¿Seguir?`
+      : `¿Borrar el equipo "${label}"?\nEsta acción no se puede deshacer.`
+    if (!confirm(msg)) return
+
+    setDeletingTeamId(team.id)
+    try {
+      // 1) borrar partidos de la fase regular que lo referencian
+      if ((lmCount.count ?? 0) > 0) {
+        const { error: e1 } = await supabase
+          .from('nm_league_matches')
+          .delete()
+          .or(`team1_id.eq.${team.id},team2_id.eq.${team.id}`)
+        if (e1) { toast('error', `No se pudieron borrar partidos: ${e1.message}`); return }
+      }
+      // 2) borrar partidos de playoff
+      if ((pmCount.count ?? 0) > 0) {
+        const { error: e2 } = await supabase
+          .from('nm_league_playoff_matches')
+          .delete()
+          .or(`team1_id.eq.${team.id},team2_id.eq.${team.id}`)
+        if (e2) { toast('error', `No se pudieron borrar partidos de playoff: ${e2.message}`); return }
+      }
+      // 3) borrar el equipo
+      const { error: e3 } = await supabase
+        .from('nm_league_teams')
+        .delete()
+        .eq('id', team.id)
+      if (e3) { toast('error', `No se pudo borrar el equipo: ${e3.message}`); return }
+
+      toast('success', totalMatches > 0
+        ? `Equipo "${label}" y ${totalMatches} partido(s) borrados`
+        : `Equipo "${label}" borrado`)
+      await load()
+    } finally {
+      setDeletingTeamId(null)
+    }
   }
 
   async function autoLink(scope: 'category' | 'league') {
@@ -535,7 +596,19 @@ export default function LigaDetallePage() {
                 <div className="space-y-2 max-h-[28rem] overflow-y-auto pr-1">
                   {catTeams.map(t => (
                     <div key={t.id} className="rounded-lg bg-slate-800/50 p-2 text-xs">
-                      <div className="font-medium text-white mb-1">{t.team_name ?? '(sin nombre)'}</div>
+                      <div className="flex items-start justify-between gap-2 mb-1">
+                        <div className="font-medium text-white flex-1 truncate">{t.team_name ?? '(sin nombre)'}</div>
+                        <button
+                          onClick={() => deleteTeam(t)}
+                          disabled={deletingTeamId === t.id}
+                          title="Borrar equipo"
+                          className="shrink-0 p-1 rounded text-slate-500 hover:text-red-400 hover:bg-red-500/10 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          {deletingTeamId === t.id
+                            ? <Loader2 size={12} className="animate-spin" />
+                            : <Trash2 size={12} />}
+                        </button>
+                      </div>
                       <div className="space-y-1">
                         {([1, 2, 3] as const).map(slot => {
                           const name = slot === 1 ? t.player1_name : slot === 2 ? t.player2_name : t.player3_name
