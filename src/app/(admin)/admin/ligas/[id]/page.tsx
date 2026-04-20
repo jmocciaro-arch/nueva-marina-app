@@ -63,6 +63,7 @@ interface Round {
   category_id: number
   round_number: number
   scheduled_date: string | null
+  deadline_date: string | null
   status: string
 }
 interface Match {
@@ -102,9 +103,10 @@ export default function LigaDetallePage() {
   })
   const [savingMatch, setSavingMatch] = useState(false)
 
-  // Round date modal
+  // Round date modal (rango: inicio + fin de la semana de juego)
   const [editingRound, setEditingRound] = useState<Round | null>(null)
   const [roundDate, setRoundDate] = useState('')
+  const [roundDeadline, setRoundDeadline] = useState('')
   const [savingRound, setSavingRound] = useState(false)
 
   // Link player modal
@@ -726,14 +728,26 @@ export default function LigaDetallePage() {
   function openEditRound(r: Round) {
     setEditingRound(r)
     setRoundDate(r.scheduled_date ?? '')
+    // Si no hay deadline pero sí inicio, sugerir +6 días
+    const suggestedEnd = r.deadline_date
+      ? r.deadline_date
+      : r.scheduled_date
+        ? addDays(r.scheduled_date, 6)
+        : ''
+    setRoundDeadline(suggestedEnd)
   }
 
   async function saveRoundDate() {
     if (!editingRound) return
+    if (roundDate && roundDeadline && roundDeadline < roundDate) {
+      toast('error', 'La fecha fin no puede ser anterior al inicio')
+      return
+    }
     setSavingRound(true)
     const supabase = createClient()
     const { error } = await supabase.from('nm_league_rounds').update({
       scheduled_date: roundDate || null,
+      deadline_date: roundDeadline || null,
     }).eq('id', editingRound.id)
     if (error) { toast('error', error.message); setSavingRound(false); return }
     toast('success', 'Fecha actualizada')
@@ -1013,39 +1027,130 @@ export default function LigaDetallePage() {
           {/* Jornadas */}
           {cat && catRounds.map(r => {
             const matchesOfRound = matches.filter(m => m.round_id === r.id)
+
+            // Calcular la semana a mostrar en el mini-cal
+            // Prioridad: scheduled_date → primer played_date de los matches
+            const firstPlayed = matchesOfRound
+              .map(m => m.played_date)
+              .filter((d): d is string => !!d)
+              .sort()[0]
+            const weekAnchor = r.scheduled_date ?? firstPlayed ?? null
+            const weekStart = weekAnchor ? startOfWeek(weekAnchor) : null
+            const weekEnd = r.deadline_date ?? (weekStart ? addDays(weekStart, 6) : null)
+
+            // Mapa día ISO → array de matches con su color
+            const dayToMatches: Record<string, Array<{ matchId: number; colorIdx: number }>> = {}
+            matchesOfRound.forEach((m, idx) => {
+              if (m.played_date) {
+                if (!dayToMatches[m.played_date]) dayToMatches[m.played_date] = []
+                dayToMatches[m.played_date].push({ matchId: m.id, colorIdx: idx })
+              }
+            })
+
+            // Construir los 7 días del calendario (desde weekStart)
+            const weekDays: Array<{ iso: string; label: string; dayNum: number }> = []
+            if (weekStart) {
+              const dayLetters = ['L', 'M', 'X', 'J', 'V', 'S', 'D']
+              for (let i = 0; i < 7; i++) {
+                const iso = addDays(weekStart, i)
+                const d = new Date(iso + 'T00:00:00')
+                weekDays.push({ iso, label: dayLetters[i], dayNum: d.getDate() })
+              }
+            }
+
             return (
               <Card key={r.id}>
-                <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
-                  <div className="flex items-center gap-3">
+                <div className="flex items-center justify-between mb-3 flex-wrap gap-3">
+                  <div className="flex items-center gap-3 flex-wrap">
                     <h3 className="text-sm font-semibold text-white">Jornada {r.round_number}</h3>
-                    {r.scheduled_date ? (
+                    {r.scheduled_date && weekEnd ? (
+                      <Badge variant="info">{fmtRange(r.scheduled_date, weekEnd)}</Badge>
+                    ) : r.scheduled_date ? (
                       <Badge variant="info">{formatDate(r.scheduled_date)}</Badge>
                     ) : (
                       <Badge variant="warning">Sin fecha</Badge>
                     )}
                   </div>
+
+                  {/* Mini-calendario de la semana con dots de colores por partido */}
+                  {weekDays.length > 0 && (
+                    <div className="flex items-end gap-1">
+                      {weekDays.map(d => {
+                        const matchesThatDay = dayToMatches[d.iso] ?? []
+                        const isToday = d.iso === new Date().toISOString().slice(0, 10)
+                        return (
+                          <div
+                            key={d.iso}
+                            className="flex flex-col items-center gap-0.5 w-7"
+                            title={fmtDayShort(d.iso) + (matchesThatDay.length ? ` · ${matchesThatDay.length} partido(s)` : '')}
+                          >
+                            <span className={[
+                              'text-[9px] uppercase tracking-wider',
+                              isToday ? 'text-cyan-400 font-bold' : 'text-slate-500',
+                            ].join(' ')}>
+                              {d.label}
+                            </span>
+                            <span className={[
+                              'text-[11px] leading-none flex items-center justify-center w-6 h-6 rounded-full',
+                              isToday ? 'bg-cyan-500/20 text-cyan-300 font-bold' : 'text-slate-300',
+                            ].join(' ')}>
+                              {d.dayNum}
+                            </span>
+                            <div className="flex gap-0.5 h-1.5">
+                              {matchesThatDay.slice(0, 4).map(({ matchId, colorIdx }) => (
+                                <span
+                                  key={matchId}
+                                  className={`w-1.5 h-1.5 rounded-full ${matchColor(colorIdx).dot}`}
+                                />
+                              ))}
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
+
                   <Button variant="ghost" onClick={() => openEditRound(r)} className="flex items-center gap-1 text-xs">
                     <Pencil size={12} /> Fecha
                   </Button>
                 </div>
+
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                  {matchesOfRound.map(m => {
+                  {matchesOfRound.map((m, idx) => {
                     const t1 = teamById.get(m.team1_id ?? -1)
                     const t2 = teamById.get(m.team2_id ?? -1)
                     const played = m.status === 'completed'
+                    const color = matchColor(idx)
                     return (
                       <button
                         key={m.id}
                         onClick={() => openEditMatch(m)}
-                        className="text-left rounded-lg border border-slate-700/50 bg-slate-800/30 hover:bg-slate-800/70 hover:border-cyan-500/30 p-3 transition-colors"
+                        className={`text-left rounded-lg border-l-4 ${color.border} border-y border-r border-slate-700/50 ${color.bg} hover:bg-slate-800/70 hover:border-slate-600 p-3 transition-colors`}
                       >
+                        <div className="flex items-center justify-between gap-2 mb-1">
+                          <div className="flex items-center gap-1.5">
+                            <span className={`w-2 h-2 rounded-full ${color.dot}`} />
+                            {m.played_date ? (
+                              <span className={`text-[10px] font-medium ${color.text}`}>
+                                {fmtDayShort(m.played_date)}
+                              </span>
+                            ) : (
+                              <span className="text-[10px] text-slate-500 italic">sin fecha</span>
+                            )}
+                          </div>
+                          {played ? (
+                            <span className="text-[10px] text-emerald-400 font-medium">JUGADO</span>
+                          ) : (
+                            <span className="text-[10px] text-slate-500">PENDIENTE</span>
+                          )}
+                        </div>
                         <div className="flex items-center justify-between gap-2">
                           <div className="min-w-0 flex-1">
                             <div className="text-xs text-slate-300 truncate">{t1?.team_name ?? '?'}</div>
                             <div className="text-xs text-slate-500 my-0.5">vs</div>
                             <div className="text-xs text-slate-300 truncate">{t2?.team_name ?? '?'}</div>
                           </div>
-                          {played ? (
+                          {played && (
                             <div className="text-right text-xs font-mono">
                               <div className={m.winner_team_id === m.team1_id ? 'text-green-400 font-bold' : 'text-slate-400'}>
                                 {m.team1_set1 ?? '-'} / {m.team1_set2 ?? '-'}{m.team1_set3 != null ? ` / ${m.team1_set3}` : ''}
@@ -1054,8 +1159,6 @@ export default function LigaDetallePage() {
                                 {m.team2_set1 ?? '-'} / {m.team2_set2 ?? '-'}{m.team2_set3 != null ? ` / ${m.team2_set3}` : ''}
                               </div>
                             </div>
-                          ) : (
-                            <Badge variant="default">Pendiente</Badge>
                           )}
                         </div>
                       </button>
@@ -1328,14 +1431,61 @@ export default function LigaDetallePage() {
         )
       })()}
 
-      {/* Modal fecha jornada */}
+      {/* Modal fecha jornada (rango: inicio + fin de semana) */}
       {editingRound && (
         <Modal open={!!editingRound} onClose={() => setEditingRound(null)} title={`Fecha — Jornada ${editingRound.round_number}`}>
           <div className="space-y-4">
-            <div>
-              <label className="block text-xs text-slate-400 mb-1">Fecha programada</label>
-              <Input type="date" value={roundDate} onChange={e => setRoundDate(e.target.value)} />
-              <p className="text-xs text-slate-500 mt-1">Dejá vacío para quitar la fecha.</p>
+            <p className="text-xs text-slate-400">
+              La jornada se juega entre dos fechas (ej: <em>Lunes 13 al Domingo 19</em>).
+              Los partidos individuales se fechan al cargar el resultado.
+            </p>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs text-slate-400 mb-1">Desde</label>
+                <Input
+                  type="date"
+                  value={roundDate}
+                  onChange={e => {
+                    const val = e.target.value
+                    setRoundDate(val)
+                    // auto-sugerir +6 días si el fin está vacío o es previo al nuevo inicio
+                    if (val && (!roundDeadline || roundDeadline < val)) {
+                      setRoundDeadline(addDays(val, 6))
+                    }
+                  }}
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-slate-400 mb-1">Hasta</label>
+                <Input
+                  type="date"
+                  value={roundDeadline}
+                  onChange={e => setRoundDeadline(e.target.value)}
+                  min={roundDate || undefined}
+                />
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="ghost"
+                onClick={() => {
+                  if (!roundDate) return
+                  const monday = startOfWeek(roundDate)
+                  setRoundDate(monday)
+                  setRoundDeadline(addDays(monday, 6))
+                }}
+                disabled={!roundDate}
+                className="text-xs"
+              >
+                Ajustar a Lun-Dom
+              </Button>
+              <Button
+                variant="ghost"
+                onClick={() => { setRoundDate(''); setRoundDeadline('') }}
+                className="text-xs text-red-400 hover:text-red-300"
+              >
+                Limpiar
+              </Button>
             </div>
             <div className="flex gap-2 justify-end">
               <Button variant="ghost" onClick={() => setEditingRound(null)} disabled={savingRound}>Cancelar</Button>
@@ -1698,4 +1848,60 @@ function computeStandings(teams: Team[], matches: Match[]) {
     if (dy !== dx) return dy - dx
     return y.wins - x.wins
   })
+}
+
+// ──────────────────────────────────────────────────────────────
+// Helpers de fechas y colores para el calendario de jornadas
+// ──────────────────────────────────────────────────────────────
+
+/** Suma N días a una fecha ISO (YYYY-MM-DD) y devuelve otra ISO. */
+function addDays(isoDate: string, days: number): string {
+  const d = new Date(isoDate + 'T00:00:00')
+  d.setDate(d.getDate() + days)
+  return d.toISOString().slice(0, 10)
+}
+
+/** Devuelve el lunes (ISO) de la semana que contiene a la fecha dada. */
+function startOfWeek(isoDate: string): string {
+  const d = new Date(isoDate + 'T00:00:00')
+  const day = d.getDay() // 0=Dom, 1=Lun, ..., 6=Sab
+  const diff = day === 0 ? -6 : 1 - day
+  d.setDate(d.getDate() + diff)
+  return d.toISOString().slice(0, 10)
+}
+
+/** Formatea una fecha ISO como "lun 13 abr". */
+function fmtDayShort(isoDate: string): string {
+  const d = new Date(isoDate + 'T00:00:00')
+  const day = d.toLocaleDateString('es-ES', { weekday: 'short' }).replace('.', '')
+  const dayNum = d.getDate()
+  const month = d.toLocaleDateString('es-ES', { month: 'short' }).replace('.', '')
+  return `${day} ${dayNum} ${month}`
+}
+
+/** Formatea un rango: "13 al 19 abr" o "30 mar al 5 abr" si cruza mes. */
+function fmtRange(startIso: string, endIso: string): string {
+  const s = new Date(startIso + 'T00:00:00')
+  const e = new Date(endIso + 'T00:00:00')
+  const sDay = s.getDate(), eDay = e.getDate()
+  const sMonth = s.toLocaleDateString('es-ES', { month: 'short' }).replace('.', '')
+  const eMonth = e.toLocaleDateString('es-ES', { month: 'short' }).replace('.', '')
+  if (s.getMonth() === e.getMonth()) return `${sDay} al ${eDay} ${eMonth}`
+  return `${sDay} ${sMonth} al ${eDay} ${eMonth}`
+}
+
+/** 7 paletas de colores determinísticas para matches dentro de una jornada. */
+const MATCH_PALETTE = [
+  { dot: 'bg-cyan-500', border: 'border-cyan-500/50', text: 'text-cyan-300', bg: 'bg-cyan-500/5' },
+  { dot: 'bg-emerald-500', border: 'border-emerald-500/50', text: 'text-emerald-300', bg: 'bg-emerald-500/5' },
+  { dot: 'bg-amber-500', border: 'border-amber-500/50', text: 'text-amber-300', bg: 'bg-amber-500/5' },
+  { dot: 'bg-purple-500', border: 'border-purple-500/50', text: 'text-purple-300', bg: 'bg-purple-500/5' },
+  { dot: 'bg-pink-500', border: 'border-pink-500/50', text: 'text-pink-300', bg: 'bg-pink-500/5' },
+  { dot: 'bg-sky-500', border: 'border-sky-500/50', text: 'text-sky-300', bg: 'bg-sky-500/5' },
+  { dot: 'bg-orange-500', border: 'border-orange-500/50', text: 'text-orange-300', bg: 'bg-orange-500/5' },
+] as const
+
+/** Color determinístico según posición del match dentro de la jornada. */
+function matchColor(indexInRound: number) {
+  return MATCH_PALETTE[indexInRound % MATCH_PALETTE.length]
 }
