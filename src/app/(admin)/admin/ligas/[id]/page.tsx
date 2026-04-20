@@ -1046,20 +1046,13 @@ export default function LigaDetallePage() {
                 dayToMatches[m.played_date].push({ matchId: m.id, colorIdx: idx })
               }
             })
-
-            // Construir los 7 días del calendario (desde weekStart)
-            const weekDays: Array<{ iso: string; label: string; dayNum: number }> = []
-            if (weekStart) {
-              const dayLetters = ['L', 'M', 'X', 'J', 'V', 'S', 'D']
-              for (let i = 0; i < 7; i++) {
-                const iso = addDays(weekStart, i)
-                const d = new Date(iso + 'T00:00:00')
-                weekDays.push({ iso, label: dayLetters[i], dayNum: d.getDate() })
-              }
-            }
+            // weekStart lo calculamos arriba para poder pasarlo si hiciera falta,
+            // pero el MonthCalendar trabaja con weekAnchor directamente.
+            void weekStart
 
             return (
               <Card key={r.id}>
+                {/* Header de la jornada: rango + botón Fecha */}
                 <div className="flex items-center justify-between mb-3 flex-wrap gap-3">
                   <div className="flex items-center gap-3 flex-wrap">
                     <h3 className="text-sm font-semibold text-white">Jornada {r.round_number}</h3>
@@ -1071,99 +1064,74 @@ export default function LigaDetallePage() {
                       <Badge variant="warning">Sin fecha</Badge>
                     )}
                   </div>
-
-                  {/* Mini-calendario de la semana con dots de colores por partido */}
-                  {weekDays.length > 0 && (
-                    <div className="flex items-end gap-1">
-                      {weekDays.map(d => {
-                        const matchesThatDay = dayToMatches[d.iso] ?? []
-                        const isToday = d.iso === new Date().toISOString().slice(0, 10)
-                        return (
-                          <div
-                            key={d.iso}
-                            className="flex flex-col items-center gap-0.5 w-7"
-                            title={fmtDayShort(d.iso) + (matchesThatDay.length ? ` · ${matchesThatDay.length} partido(s)` : '')}
-                          >
-                            <span className={[
-                              'text-[9px] uppercase tracking-wider',
-                              isToday ? 'text-cyan-400 font-bold' : 'text-slate-500',
-                            ].join(' ')}>
-                              {d.label}
-                            </span>
-                            <span className={[
-                              'text-[11px] leading-none flex items-center justify-center w-6 h-6 rounded-full',
-                              isToday ? 'bg-cyan-500/20 text-cyan-300 font-bold' : 'text-slate-300',
-                            ].join(' ')}>
-                              {d.dayNum}
-                            </span>
-                            <div className="flex gap-0.5 h-1.5">
-                              {matchesThatDay.slice(0, 4).map(({ matchId, colorIdx }) => (
-                                <span
-                                  key={matchId}
-                                  className={`w-1.5 h-1.5 rounded-full ${matchColor(colorIdx).dot}`}
-                                />
-                              ))}
-                            </div>
-                          </div>
-                        )
-                      })}
-                    </div>
-                  )}
-
                   <Button variant="ghost" onClick={() => openEditRound(r)} className="flex items-center gap-1 text-xs">
                     <Pencil size={12} /> Fecha
                   </Button>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                  {matchesOfRound.map((m, idx) => {
-                    const t1 = teamById.get(m.team1_id ?? -1)
-                    const t2 = teamById.get(m.team2_id ?? -1)
-                    const played = m.status === 'completed'
-                    const color = matchColor(idx)
-                    return (
-                      <button
-                        key={m.id}
-                        onClick={() => openEditMatch(m)}
-                        className={`text-left rounded-lg border-l-4 ${color.border} border-y border-r border-slate-700/50 ${color.bg} hover:bg-slate-800/70 hover:border-slate-600 p-3 transition-colors`}
-                      >
-                        <div className="flex items-center justify-between gap-2 mb-1">
-                          <div className="flex items-center gap-1.5">
-                            <span className={`w-2 h-2 rounded-full ${color.dot}`} />
-                            {m.played_date ? (
-                              <span className={`text-[10px] font-medium ${color.text}`}>
-                                {fmtDayShort(m.played_date)}
-                              </span>
+                {/* Layout: partidos a la izquierda, calendario del mes a la derecha */}
+                <div className="grid grid-cols-1 lg:grid-cols-[1fr_240px] gap-4">
+                  {/* Partidos */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2 content-start">
+                    {matchesOfRound.map((m, idx) => {
+                      const t1 = teamById.get(m.team1_id ?? -1)
+                      const t2 = teamById.get(m.team2_id ?? -1)
+                      const played = m.status === 'completed'
+                      const color = matchColor(idx)
+                      return (
+                        <button
+                          key={m.id}
+                          onClick={() => openEditMatch(m)}
+                          className={`text-left rounded-lg border-l-4 ${color.border} border-y border-r border-slate-700/50 ${color.bg} hover:bg-slate-800/70 hover:border-slate-600 p-3 transition-colors`}
+                        >
+                          <div className="flex items-center justify-between gap-2 mb-1">
+                            <div className="flex items-center gap-1.5">
+                              <span className={`w-2 h-2 rounded-full ${color.dot}`} />
+                              {m.played_date ? (
+                                <span className={`text-[10px] font-medium ${color.text}`}>
+                                  {fmtDayShort(m.played_date)}
+                                </span>
+                              ) : (
+                                <span className="text-[10px] text-slate-500 italic">sin fecha</span>
+                              )}
+                            </div>
+                            {played ? (
+                              <span className="text-[10px] text-emerald-400 font-medium">JUGADO</span>
                             ) : (
-                              <span className="text-[10px] text-slate-500 italic">sin fecha</span>
+                              <span className="text-[10px] text-slate-500">PENDIENTE</span>
                             )}
                           </div>
-                          {played ? (
-                            <span className="text-[10px] text-emerald-400 font-medium">JUGADO</span>
-                          ) : (
-                            <span className="text-[10px] text-slate-500">PENDIENTE</span>
-                          )}
-                        </div>
-                        <div className="flex items-center justify-between gap-2">
-                          <div className="min-w-0 flex-1">
-                            <div className="text-xs text-slate-300 truncate">{t1?.team_name ?? '?'}</div>
-                            <div className="text-xs text-slate-500 my-0.5">vs</div>
-                            <div className="text-xs text-slate-300 truncate">{t2?.team_name ?? '?'}</div>
-                          </div>
-                          {played && (
-                            <div className="text-right text-xs font-mono">
-                              <div className={m.winner_team_id === m.team1_id ? 'text-green-400 font-bold' : 'text-slate-400'}>
-                                {m.team1_set1 ?? '-'} / {m.team1_set2 ?? '-'}{m.team1_set3 != null ? ` / ${m.team1_set3}` : ''}
-                              </div>
-                              <div className={m.winner_team_id === m.team2_id ? 'text-green-400 font-bold' : 'text-slate-400'}>
-                                {m.team2_set1 ?? '-'} / {m.team2_set2 ?? '-'}{m.team2_set3 != null ? ` / ${m.team2_set3}` : ''}
-                              </div>
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="min-w-0 flex-1">
+                              <div className="text-xs text-slate-300 truncate">{t1?.team_name ?? '?'}</div>
+                              <div className="text-xs text-slate-500 my-0.5">vs</div>
+                              <div className="text-xs text-slate-300 truncate">{t2?.team_name ?? '?'}</div>
                             </div>
-                          )}
-                        </div>
-                      </button>
-                    )
-                  })}
+                            {played && (
+                              <div className="text-right text-xs font-mono">
+                                <div className={m.winner_team_id === m.team1_id ? 'text-green-400 font-bold' : 'text-slate-400'}>
+                                  {m.team1_set1 ?? '-'} / {m.team1_set2 ?? '-'}{m.team1_set3 != null ? ` / ${m.team1_set3}` : ''}
+                                </div>
+                                <div className={m.winner_team_id === m.team2_id ? 'text-green-400 font-bold' : 'text-slate-400'}>
+                                  {m.team2_set1 ?? '-'} / {m.team2_set2 ?? '-'}{m.team2_set3 != null ? ` / ${m.team2_set3}` : ''}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        </button>
+                      )
+                    })}
+                  </div>
+
+                  {/* Calendario del mes completo */}
+                  {weekAnchor && (
+                    <MonthCalendar
+                      anchor={weekAnchor}
+                      rangeStart={r.scheduled_date}
+                      rangeEnd={weekEnd}
+                      matchesByDay={dayToMatches}
+                    />
+                  )}
                 </div>
               </Card>
             )
@@ -1904,4 +1872,98 @@ const MATCH_PALETTE = [
 /** Color determinístico según posición del match dentro de la jornada. */
 function matchColor(indexInRound: number) {
   return MATCH_PALETTE[indexInRound % MATCH_PALETTE.length]
+}
+
+// ──────────────────────────────────────────────────────────────
+// MonthCalendar — vista del mes completo con dots de partidos
+// ──────────────────────────────────────────────────────────────
+interface MonthCalendarProps {
+  anchor: string                  // ISO date del día "ancla" (scheduled_date o primer played_date)
+  rangeStart: string | null       // ISO inicio de la jornada (resaltado)
+  rangeEnd: string | null         // ISO fin de la jornada (resaltado)
+  matchesByDay: Record<string, Array<{ matchId: number; colorIdx: number }>>
+}
+
+function MonthCalendar({ anchor, rangeStart, rangeEnd, matchesByDay }: MonthCalendarProps) {
+  const d = new Date(anchor + 'T00:00:00')
+  const year = d.getFullYear()
+  const month = d.getMonth() // 0-indexed
+  const monthName = d.toLocaleDateString('es-ES', { month: 'long', year: 'numeric' })
+
+  const firstOfMonth = new Date(year, month, 1)
+  const firstDayOfWeek = firstOfMonth.getDay() // 0=Dom ... 6=Sab
+  const offset = firstDayOfWeek === 0 ? 6 : firstDayOfWeek - 1
+  const daysInMonth = new Date(year, month + 1, 0).getDate()
+
+  type Cell = { iso?: string; dayNum?: number; empty?: boolean }
+  const cells: Cell[] = []
+  for (let i = 0; i < offset; i++) cells.push({ empty: true })
+  for (let i = 1; i <= daysInMonth; i++) {
+    const iso = `${year}-${String(month + 1).padStart(2, '0')}-${String(i).padStart(2, '0')}`
+    cells.push({ iso, dayNum: i })
+  }
+  while (cells.length % 7 !== 0) cells.push({ empty: true })
+
+  const today = new Date().toISOString().slice(0, 10)
+  const dayLabels = ['L', 'M', 'X', 'J', 'V', 'S', 'D']
+
+  return (
+    <div className="rounded-lg border border-slate-700/50 bg-slate-900/40 p-3">
+      <div className="text-xs font-semibold text-slate-200 capitalize mb-2 text-center">
+        {monthName}
+      </div>
+      <div className="grid grid-cols-7 gap-0.5 mb-1">
+        {dayLabels.map(l => (
+          <div key={l} className="text-[9px] text-slate-500 uppercase text-center">{l}</div>
+        ))}
+      </div>
+      <div className="grid grid-cols-7 gap-0.5">
+        {cells.map((c, i) => {
+          if (c.empty || !c.iso) {
+            return <div key={i} className="aspect-square" />
+          }
+          const inRange = rangeStart && rangeEnd && c.iso >= rangeStart && c.iso <= rangeEnd
+          const isToday = c.iso === today
+          const ms = matchesByDay[c.iso] ?? []
+          const hasMatches = ms.length > 0
+
+          return (
+            <div
+              key={i}
+              title={hasMatches ? `${c.dayNum} · ${ms.length} partido(s)` : `día ${c.dayNum}`}
+              className={[
+                'aspect-square flex flex-col items-center justify-start rounded text-[10px] pt-0.5 transition-colors',
+                inRange ? 'bg-cyan-500/10 border border-cyan-500/30' : 'bg-slate-800/40',
+                isToday ? 'ring-1 ring-cyan-400' : '',
+                hasMatches ? 'font-semibold' : '',
+              ].join(' ')}
+            >
+              <span className={isToday ? 'text-cyan-300' : 'text-slate-300'}>
+                {c.dayNum}
+              </span>
+              {hasMatches && (
+                <div className="flex gap-0.5 mt-0.5 flex-wrap justify-center max-w-full px-0.5">
+                  {ms.slice(0, 4).map(({ matchId, colorIdx }) => (
+                    <span
+                      key={matchId}
+                      className={`w-1 h-1 rounded-full ${matchColor(colorIdx).dot}`}
+                    />
+                  ))}
+                  {ms.length > 4 && (
+                    <span className="text-[7px] text-slate-500 leading-none">+{ms.length - 4}</span>
+                  )}
+                </div>
+              )}
+            </div>
+          )
+        })}
+      </div>
+      {/* Leyenda: cuenta total de partidos en el mes */}
+      {Object.keys(matchesByDay).length > 0 && (
+        <div className="mt-2 pt-2 border-t border-slate-700/50 text-[10px] text-slate-500 text-center">
+          {Object.values(matchesByDay).reduce((acc, v) => acc + v.length, 0)} partido(s) programados
+        </div>
+      )}
+    </div>
+  )
 }
