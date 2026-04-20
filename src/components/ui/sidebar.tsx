@@ -7,7 +7,7 @@ import {
   Swords, BarChart3, Lightbulb, Search, Menu, X, ChevronDown,
   Receipt, DoorOpen, MessageSquare, Target, ClipboardList, UserCog,
   QrCode, CreditCard, CircleDot, Activity, Heart, Store, Droplets,
-  Tag, Layers, ShieldCheck, Upload
+  Tag, Layers, ShieldCheck, Upload, Sparkles
 } from 'lucide-react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
@@ -55,6 +55,7 @@ const playerGroups: NavGroup[] = [
       { icon: <Trophy size={18} />, label: 'Mis Torneos', href: '/mis-torneos' },
       { icon: <Medal size={18} />, label: 'Mis Ligas', href: '/mis-ligas' },
       { icon: <BarChart3 size={18} />, label: 'Ranking', href: '/ranking' },
+      { icon: <Sparkles size={18} />, label: 'Análisis IA', href: '/analisis-ia' },
     ],
   },
   {
@@ -112,6 +113,7 @@ const adminGroups: NavGroup[] = [
       { icon: <Trophy size={18} />, label: 'Torneos', href: '/admin/torneos', permission: 'tournaments.manage' },
       { icon: <Medal size={18} />, label: 'Ligas', href: '/admin/ligas', permission: 'leagues.manage' },
       { icon: <Users size={18} />, label: 'Jugadores', href: '/admin/jugadores', permission: 'ranking.view' },
+      { icon: <Sparkles size={18} />, label: 'Análisis IA', href: '/admin/analisis-ia', permission: 'ai.analysis.manage' },
     ],
   },
   {

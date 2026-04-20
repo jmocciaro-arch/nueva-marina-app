@@ -6,6 +6,7 @@ import { useParams, useRouter } from 'next/navigation'
 import {
   ArrowLeft, Trophy, Users, CalendarDays, Save, Loader2,
   Pencil, Layers, ListOrdered, Medal, Download, Upload, Share2, Copy, ExternalLink, Trash2,
+  History, AlertTriangle, Plus,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useRealtimeRefresh } from '@/hooks/use-realtime-refresh'
@@ -122,8 +123,59 @@ export default function LigaDetallePage() {
   // Compartir link público
   const [sharingPublic, setSharingPublic] = useState(false)
 
-  // Borrar equipo (duplicados, etc.)
-  const [deletingTeamId, setDeletingTeamId] = useState<number | null>(null)
+  // Borrar equipo (duplicados, etc.) — con modal y registro de auditoría
+  const [deletingTeam, setDeletingTeam] = useState<{
+    team: Team
+    matchesCount: number
+    playoffCount: number
+  } | null>(null)
+  const [deletionReason, setDeletionReason] = useState('')
+  const [confirmingDelete, setConfirmingDelete] = useState(false)
+  const [openingDeleteFor, setOpeningDeleteFor] = useState<number | null>(null)
+
+  // Historial de borrados
+  interface DeletionRecord {
+    id: number
+    original_team_id: number
+    team_name: string | null
+    player1_name: string | null
+    player2_name: string | null
+    player3_name: string | null
+    matches_deleted: number
+    playoff_matches_deleted: number
+    reason: string
+    deleted_by_name: string | null
+    deleted_by_email: string | null
+    created_at: string
+    category_id: number | null
+  }
+  const [showDeletionHistory, setShowDeletionHistory] = useState(false)
+  const [deletionHistory, setDeletionHistory] = useState<DeletionRecord[]>([])
+  const [loadingHistory, setLoadingHistory] = useState(false)
+
+  // CRUD Categorías
+  const [categoryEditor, setCategoryEditor] = useState<{
+    mode: 'create' | 'edit'
+    id: number | null
+    name: string
+    gender: string
+    level: string
+    max_teams: number
+    status: string
+  } | null>(null)
+  const [savingCategory, setSavingCategory] = useState(false)
+
+  // Borrar categoría
+  const [deletingCategory, setDeletingCategory] = useState<{
+    category: Category
+    teamsCount: number
+    roundsCount: number
+    matchesCount: number
+    playoffCount: number
+  } | null>(null)
+  const [deletingCategoryReason, setDeletingCategoryReason] = useState('')
+  const [confirmingDeleteCategory, setConfirmingDeleteCategory] = useState(false)
+  const [openingCategoryDeleteFor, setOpeningCategoryDeleteFor] = useState<number | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -226,49 +278,94 @@ export default function LigaDetallePage() {
     load()
   }
 
-  async function deleteTeam(team: Team) {
+  async function openDeleteModal(team: Team) {
+    setOpeningDeleteFor(team.id)
+    try {
+      const supabase = createClient()
+      const [lmCount, pmCount] = await Promise.all([
+        supabase
+          .from('nm_league_matches')
+          .select('id', { count: 'exact', head: true })
+          .or(`team1_id.eq.${team.id},team2_id.eq.${team.id}`),
+        supabase
+          .from('nm_league_playoff_matches')
+          .select('id', { count: 'exact', head: true })
+          .or(`team1_id.eq.${team.id},team2_id.eq.${team.id}`),
+      ])
+      setDeletingTeam({
+        team,
+        matchesCount: lmCount.count ?? 0,
+        playoffCount: pmCount.count ?? 0,
+      })
+      setDeletionReason('')
+    } finally {
+      setOpeningDeleteFor(null)
+    }
+  }
+
+  async function confirmDeleteTeam() {
+    if (!deletingTeam) return
+    const reason = deletionReason.trim()
+    if (reason.length < 3) {
+      toast('error', 'Contanos el motivo del borrado (mínimo 3 caracteres)')
+      return
+    }
+
+    const { team, matchesCount, playoffCount } = deletingTeam
+    const totalMatches = matchesCount + playoffCount
     const label = team.team_name ?? `(equipo #${team.id})`
     const supabase = createClient()
+    setConfirmingDelete(true)
 
-    // contar partidos que referencian este equipo
-    const [lmCount, pmCount] = await Promise.all([
-      supabase
-        .from('nm_league_matches')
-        .select('id', { count: 'exact', head: true })
-        .or(`team1_id.eq.${team.id},team2_id.eq.${team.id}`),
-      supabase
-        .from('nm_league_playoff_matches')
-        .select('id', { count: 'exact', head: true })
-        .or(`team1_id.eq.${team.id},team2_id.eq.${team.id}`),
-    ])
-    const totalMatches = (lmCount.count ?? 0) + (pmCount.count ?? 0)
-
-    const msg = totalMatches > 0
-      ? `El equipo "${label}" tiene ${totalMatches} partido(s) asociado(s).\n` +
-        `Si lo borrás, se van a eliminar también esos partidos y sus resultados.\n\n` +
-        `¿Seguir?`
-      : `¿Borrar el equipo "${label}"?\nEsta acción no se puede deshacer.`
-    if (!confirm(msg)) return
-
-    setDeletingTeamId(team.id)
     try {
-      // 1) borrar partidos de la fase regular que lo referencian
-      if ((lmCount.count ?? 0) > 0) {
+      // 0) datos del usuario que borra (para el registro)
+      const { data: auth } = await supabase.auth.getUser()
+      const { data: me } = auth.user
+        ? await supabase.from('nm_users').select('full_name, email').eq('id', auth.user.id).maybeSingle()
+        : { data: null }
+
+      // 1) grabar registro de auditoría ANTES del delete para no perder snapshot
+      const { error: eAudit } = await supabase.from('nm_league_team_deletions').insert({
+        league_id: leagueId,
+        category_id: team.category_id,
+        original_team_id: team.id,
+        team_name: team.team_name,
+        player1_name: team.player1_name,
+        player2_name: team.player2_name,
+        player3_name: team.player3_name,
+        player1_id: team.player1_id,
+        player2_id: team.player2_id,
+        player3_id: team.player3_id,
+        matches_deleted: matchesCount,
+        playoff_matches_deleted: playoffCount,
+        reason,
+        deleted_by: auth.user?.id ?? null,
+        deleted_by_name: me?.full_name ?? null,
+        deleted_by_email: me?.email ?? auth.user?.email ?? null,
+        snapshot: team as unknown as Record<string, unknown>,
+      })
+      if (eAudit) {
+        toast('error', `No se pudo grabar la auditoría: ${eAudit.message}`)
+        return
+      }
+
+      // 2) borrar partidos de la fase regular
+      if (matchesCount > 0) {
         const { error: e1 } = await supabase
           .from('nm_league_matches')
           .delete()
           .or(`team1_id.eq.${team.id},team2_id.eq.${team.id}`)
         if (e1) { toast('error', `No se pudieron borrar partidos: ${e1.message}`); return }
       }
-      // 2) borrar partidos de playoff
-      if ((pmCount.count ?? 0) > 0) {
+      // 3) borrar partidos de playoff
+      if (playoffCount > 0) {
         const { error: e2 } = await supabase
           .from('nm_league_playoff_matches')
           .delete()
           .or(`team1_id.eq.${team.id},team2_id.eq.${team.id}`)
         if (e2) { toast('error', `No se pudieron borrar partidos de playoff: ${e2.message}`); return }
       }
-      // 3) borrar el equipo
+      // 4) borrar el equipo
       const { error: e3 } = await supabase
         .from('nm_league_teams')
         .delete()
@@ -276,11 +373,213 @@ export default function LigaDetallePage() {
       if (e3) { toast('error', `No se pudo borrar el equipo: ${e3.message}`); return }
 
       toast('success', totalMatches > 0
-        ? `Equipo "${label}" y ${totalMatches} partido(s) borrados`
-        : `Equipo "${label}" borrado`)
+        ? `Equipo "${label}" y ${totalMatches} partido(s) borrados · registro guardado`
+        : `Equipo "${label}" borrado · registro guardado`)
+      setDeletingTeam(null)
+      setDeletionReason('')
       await load()
     } finally {
-      setDeletingTeamId(null)
+      setConfirmingDelete(false)
+    }
+  }
+
+  async function loadDeletionHistory() {
+    setLoadingHistory(true)
+    const supabase = createClient()
+    const { data, error } = await supabase
+      .from('nm_league_team_deletions')
+      .select('id, original_team_id, team_name, player1_name, player2_name, player3_name, matches_deleted, playoff_matches_deleted, reason, deleted_by_name, deleted_by_email, created_at, category_id')
+      .eq('league_id', leagueId)
+      .order('created_at', { ascending: false })
+      .limit(200)
+    if (error) {
+      toast('error', `No se pudo cargar el historial: ${error.message}`)
+    } else {
+      setDeletionHistory((data ?? []) as DeletionRecord[])
+    }
+    setLoadingHistory(false)
+  }
+
+  function openHistoryModal() {
+    setShowDeletionHistory(true)
+    loadDeletionHistory()
+  }
+
+  // ──────────────────────────────────────────────────────────────
+  // CRUD Categorías
+  // ──────────────────────────────────────────────────────────────
+  function openCategoryCreate() {
+    const nextSort = categories.length > 0
+      ? Math.max(...categories.map(c => c.sort_order ?? 0)) + 1
+      : 0
+    setCategoryEditor({
+      mode: 'create',
+      id: null,
+      name: '',
+      gender: 'mixed',
+      level: '',
+      max_teams: 12,
+      status: 'registration',
+    })
+    // usar la variable para evitar warning de unused
+    void nextSort
+  }
+
+  function openCategoryEdit(c: Category) {
+    setCategoryEditor({
+      mode: 'edit',
+      id: c.id,
+      name: c.name,
+      gender: c.gender ?? 'mixed',
+      level: c.level ?? '',
+      max_teams: 12,
+      status: c.status ?? 'registration',
+    })
+  }
+
+  async function saveCategory() {
+    if (!categoryEditor) return
+    const name = categoryEditor.name.trim()
+    if (!name) { toast('error', 'El nombre es obligatorio'); return }
+
+    setSavingCategory(true)
+    const supabase = createClient()
+
+    if (categoryEditor.mode === 'create') {
+      const nextSort = categories.length > 0
+        ? Math.max(...categories.map(c => c.sort_order ?? 0)) + 1
+        : 0
+      const { data, error } = await supabase
+        .from('nm_league_categories')
+        .insert({
+          league_id: leagueId,
+          name,
+          gender: categoryEditor.gender,
+          level: categoryEditor.level.trim() || null,
+          max_teams: categoryEditor.max_teams,
+          status: categoryEditor.status,
+          sort_order: nextSort,
+        })
+        .select('id')
+        .single()
+      if (error) { toast('error', `No se pudo crear: ${error.message}`); setSavingCategory(false); return }
+      toast('success', `Categoría "${name}" creada`)
+      setCategoryEditor(null)
+      setSavingCategory(false)
+      await load()
+      if (data?.id) setActiveCategoryId(data.id as number)
+      return
+    }
+
+    // edit
+    const { error } = await supabase
+      .from('nm_league_categories')
+      .update({
+        name,
+        gender: categoryEditor.gender,
+        level: categoryEditor.level.trim() || null,
+        status: categoryEditor.status,
+      })
+      .eq('id', categoryEditor.id)
+    if (error) { toast('error', `No se pudo guardar: ${error.message}`); setSavingCategory(false); return }
+    toast('success', 'Categoría actualizada')
+    setCategoryEditor(null)
+    setSavingCategory(false)
+    await load()
+  }
+
+  async function openDeleteCategoryModal(category: Category) {
+    setOpeningCategoryDeleteFor(category.id)
+    try {
+      const supabase = createClient()
+      const [tCount, rCount, mCount, pCount] = await Promise.all([
+        supabase.from('nm_league_teams')
+          .select('id', { count: 'exact', head: true }).eq('category_id', category.id),
+        supabase.from('nm_league_rounds')
+          .select('id', { count: 'exact', head: true }).eq('category_id', category.id),
+        supabase.from('nm_league_matches')
+          .select('id', { count: 'exact', head: true }).eq('category_id', category.id),
+        supabase.from('nm_league_playoff_matches')
+          .select('id', { count: 'exact', head: true }).eq('category_id', category.id),
+      ])
+      setDeletingCategory({
+        category,
+        teamsCount: tCount.count ?? 0,
+        roundsCount: rCount.count ?? 0,
+        matchesCount: mCount.count ?? 0,
+        playoffCount: pCount.count ?? 0,
+      })
+      setDeletingCategoryReason('')
+    } finally {
+      setOpeningCategoryDeleteFor(null)
+    }
+  }
+
+  async function confirmDeleteCategory() {
+    if (!deletingCategory) return
+    const reason = deletingCategoryReason.trim()
+    if (reason.length < 3) {
+      toast('error', 'Contanos el motivo del borrado (mínimo 3 caracteres)')
+      return
+    }
+    const { category, teamsCount, roundsCount, matchesCount, playoffCount } = deletingCategory
+    const supabase = createClient()
+    setConfirmingDeleteCategory(true)
+
+    try {
+      // snapshot de los equipos de la categoría
+      const { data: teamsSnap } = await supabase
+        .from('nm_league_teams')
+        .select('*')
+        .eq('category_id', category.id)
+
+      // datos del usuario que borra
+      const { data: auth } = await supabase.auth.getUser()
+      const { data: me } = auth.user
+        ? await supabase.from('nm_users').select('full_name, email').eq('id', auth.user.id).maybeSingle()
+        : { data: null }
+
+      // 1) audit PRIMERO
+      const { error: eAudit } = await supabase.from('nm_league_category_deletions').insert({
+        league_id: leagueId,
+        original_category_id: category.id,
+        category_name: category.name,
+        gender: category.gender,
+        level: category.level,
+        status_at_deletion: category.status,
+        teams_deleted: teamsCount,
+        rounds_deleted: roundsCount,
+        matches_deleted: matchesCount,
+        playoff_matches_deleted: playoffCount,
+        reason,
+        deleted_by: auth.user?.id ?? null,
+        deleted_by_name: me?.full_name ?? null,
+        deleted_by_email: me?.email ?? auth.user?.email ?? null,
+        category_snapshot: category as unknown as Record<string, unknown>,
+        teams_snapshot: (teamsSnap ?? []) as unknown as Record<string, unknown>[],
+      })
+      if (eAudit) {
+        toast('error', `No se pudo grabar la auditoría: ${eAudit.message}`)
+        return
+      }
+
+      // 2) borrar categoría — el schema tiene ON DELETE CASCADE para teams,
+      //    rounds, matches, playoff_matches y groups, así que esto limpia
+      //    todo en cascada automáticamente.
+      const { error: eDel } = await supabase
+        .from('nm_league_categories')
+        .delete()
+        .eq('id', category.id)
+      if (eDel) { toast('error', `No se pudo borrar la categoría: ${eDel.message}`); return }
+
+      toast('success', `Categoría "${category.name}" borrada con ${teamsCount} equipo(s) y ${matchesCount + playoffCount} partido(s) en cascada`)
+      setDeletingCategory(null)
+      setDeletingCategoryReason('')
+      // si la categoría borrada era la activa, pasar a la primera que quede
+      if (activeCategoryId === category.id) setActiveCategoryId(null)
+      await load()
+    } finally {
+      setConfirmingDeleteCategory(false)
     }
   }
 
@@ -497,11 +796,24 @@ export default function LigaDetallePage() {
       {/* Tabs de categorías */}
       {categories.length === 0 ? (
         <Card>
-          <p className="text-slate-400 text-sm">Esta liga no tiene categorías. Importá un Excel o creá una categoría desde el backend.</p>
+          <div className="flex flex-col items-center gap-3 py-4">
+            <p className="text-slate-400 text-sm">Esta liga no tiene categorías todavía.</p>
+            <div className="flex gap-2">
+              <Button onClick={openCategoryCreate} className="flex items-center gap-1">
+                <Plus size={14} /> Crear categoría
+              </Button>
+              <Link
+                href={`/admin/ligas/importar?league_id=${league.id}`}
+                className="flex items-center gap-1 px-4 py-2 text-sm rounded-lg bg-slate-700 hover:bg-slate-600 text-white transition-colors"
+              >
+                <Upload size={14} /> Importar Excel
+              </Link>
+            </div>
+          </div>
         </Card>
       ) : (
         <>
-          <div className="flex gap-1 overflow-x-auto border-b border-slate-700/50">
+          <div className="flex gap-1 overflow-x-auto border-b border-slate-700/50 items-center">
             {categories.map(c => (
               <button
                 key={c.id}
@@ -519,14 +831,40 @@ export default function LigaDetallePage() {
                 </span>
               </button>
             ))}
+            <button
+              onClick={openCategoryCreate}
+              title="Crear nueva categoría"
+              className="ml-2 px-3 py-2 text-sm whitespace-nowrap text-cyan-400 hover:text-cyan-300 hover:bg-slate-800/50 rounded-t flex items-center gap-1 transition-colors"
+            >
+              <Plus size={14} /> Nueva
+            </button>
           </div>
 
           {cat && (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
               {/* Standings */}
               <Card>
-                <h2 className="text-sm font-semibold text-white mb-3 flex items-center gap-2">
+                <h2 className="text-sm font-semibold text-white mb-3 flex items-center gap-2 flex-wrap">
                   <Medal size={16} className="text-cyan-400" /> Clasificación — {cat.name}
+                  <div className="ml-auto flex items-center gap-1">
+                    <button
+                      onClick={() => openCategoryEdit(cat)}
+                      title="Editar categoría"
+                      className="p-1.5 rounded text-slate-500 hover:text-cyan-400 hover:bg-cyan-500/10 transition-colors"
+                    >
+                      <Pencil size={12} />
+                    </button>
+                    <button
+                      onClick={() => openDeleteCategoryModal(cat)}
+                      disabled={openingCategoryDeleteFor === cat.id}
+                      title="Borrar categoría (se pide motivo)"
+                      className="p-1.5 rounded text-slate-500 hover:text-red-400 hover:bg-red-500/10 transition-colors disabled:opacity-50"
+                    >
+                      {openingCategoryDeleteFor === cat.id
+                        ? <Loader2 size={12} className="animate-spin" />
+                        : <Trash2 size={12} />}
+                    </button>
+                  </div>
                 </h2>
                 <div className="overflow-x-auto">
                   <table className="w-full text-xs">
@@ -571,7 +909,14 @@ export default function LigaDetallePage() {
                     const total = catTeams.reduce((acc, t) => acc + [t.player1_name, t.player2_name, t.player3_name].filter(Boolean).length, 0)
                     return <Badge variant={linked === total ? 'success' : 'warning'}>{linked}/{total} vinculados</Badge>
                   })()}
-                  <span className="text-xs text-slate-500 ml-auto">{genderLabel[cat.gender] ?? cat.gender}</span>
+                  <button
+                    onClick={openHistoryModal}
+                    className="ml-auto text-[11px] text-slate-400 hover:text-cyan-400 flex items-center gap-1 transition-colors"
+                    title="Ver historial de equipos borrados en esta liga"
+                  >
+                    <History size={12} /> Historial borrados
+                  </button>
+                  <span className="text-xs text-slate-500">{genderLabel[cat.gender] ?? cat.gender}</span>
                 </h2>
                 <div className="flex items-center gap-2 mb-3 flex-wrap">
                   <Button
@@ -599,12 +944,12 @@ export default function LigaDetallePage() {
                       <div className="flex items-start justify-between gap-2 mb-1">
                         <div className="font-medium text-white flex-1 truncate">{t.team_name ?? '(sin nombre)'}</div>
                         <button
-                          onClick={() => deleteTeam(t)}
-                          disabled={deletingTeamId === t.id}
-                          title="Borrar equipo"
+                          onClick={() => openDeleteModal(t)}
+                          disabled={openingDeleteFor === t.id}
+                          title="Borrar equipo (se pide motivo)"
                           className="shrink-0 p-1 rounded text-slate-500 hover:text-red-400 hover:bg-red-500/10 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                         >
-                          {deletingTeamId === t.id
+                          {openingDeleteFor === t.id
                             ? <Loader2 size={12} className="animate-spin" />
                             : <Trash2 size={12} />}
                         </button>
@@ -1000,6 +1345,312 @@ export default function LigaDetallePage() {
               </Button>
             </div>
           </div>
+        </Modal>
+      )}
+
+      {/* Modal confirmar borrado de equipo con motivo obligatorio */}
+      {deletingTeam && (
+        <Modal
+          open={!!deletingTeam}
+          onClose={() => { if (!confirmingDelete) { setDeletingTeam(null); setDeletionReason('') } }}
+          title={`Borrar equipo — ${deletingTeam.team.team_name ?? `#${deletingTeam.team.id}`}`}
+        >
+          <div className="space-y-4">
+            <div className="rounded-lg border border-red-500/30 bg-red-500/5 p-3 flex gap-3">
+              <AlertTriangle size={18} className="text-red-400 shrink-0 mt-0.5" />
+              <div className="text-xs text-red-200 space-y-1">
+                <p><strong>Esta acción no se puede deshacer.</strong></p>
+                {(deletingTeam.matchesCount + deletingTeam.playoffCount) > 0 ? (
+                  <p>
+                    El equipo tiene{' '}
+                    <strong>{deletingTeam.matchesCount}</strong> partido(s) de fase regular
+                    {deletingTeam.playoffCount > 0 && <> y <strong>{deletingTeam.playoffCount}</strong> de playoff</>}
+                    {' '}que también se eliminarán, incluyendo sus resultados.
+                  </p>
+                ) : (
+                  <p>El equipo no tiene partidos asociados.</p>
+                )}
+              </div>
+            </div>
+
+            <div className="text-xs text-slate-400 space-y-1">
+              <p><span className="text-slate-500">Jugadores del equipo:</span></p>
+              <ul className="pl-4 list-disc text-slate-300">
+                {[deletingTeam.team.player1_name, deletingTeam.team.player2_name, deletingTeam.team.player3_name]
+                  .filter(Boolean)
+                  .map((n, i) => <li key={i}>{n}</li>)}
+                {![deletingTeam.team.player1_name, deletingTeam.team.player2_name, deletingTeam.team.player3_name].some(Boolean) &&
+                  <li className="text-slate-500 list-none">(sin jugadores cargados)</li>}
+              </ul>
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-slate-300 mb-1">
+                Motivo del borrado <span className="text-red-400">*</span>
+              </label>
+              <textarea
+                value={deletionReason}
+                onChange={e => setDeletionReason(e.target.value)}
+                placeholder="Ej: Equipo duplicado al importar desde Excel, el correcto es el otro ALBA-MANU con los jugadores vinculados."
+                rows={3}
+                className="w-full rounded-lg border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-cyan-500/40 focus:border-cyan-500"
+                disabled={confirmingDelete}
+                autoFocus
+              />
+              <p className="text-[11px] text-slate-500 mt-1">
+                Quedará registrado en el historial de la liga junto con tu nombre y la fecha.
+              </p>
+            </div>
+
+            <div className="flex gap-2 justify-end pt-2">
+              <Button
+                variant="ghost"
+                onClick={() => { setDeletingTeam(null); setDeletionReason('') }}
+                disabled={confirmingDelete}
+              >
+                Cancelar
+              </Button>
+              <Button
+                onClick={confirmDeleteTeam}
+                disabled={confirmingDelete || deletionReason.trim().length < 3}
+                className="bg-red-600 hover:bg-red-700 flex items-center gap-1"
+              >
+                {confirmingDelete
+                  ? <Loader2 size={14} className="animate-spin" />
+                  : <Trash2 size={14} />}
+                {confirmingDelete ? 'Borrando…' : 'Borrar equipo'}
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* Modal crear/editar categoría */}
+      {categoryEditor && (
+        <Modal
+          open={!!categoryEditor}
+          onClose={() => { if (!savingCategory) setCategoryEditor(null) }}
+          title={categoryEditor.mode === 'create' ? 'Nueva categoría' : `Editar categoría — ${categoryEditor.name}`}
+        >
+          <div className="space-y-4">
+            <div>
+              <label className="block text-xs font-medium text-slate-300 mb-1">
+                Nombre <span className="text-red-400">*</span>
+              </label>
+              <Input
+                value={categoryEditor.name}
+                onChange={e => setCategoryEditor({ ...categoryEditor, name: e.target.value })}
+                placeholder="Ej: 4ª/5ª Femenina - Grupo A"
+                disabled={savingCategory}
+                autoFocus
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-medium text-slate-300 mb-1">Género</label>
+                <select
+                  value={categoryEditor.gender}
+                  onChange={e => setCategoryEditor({ ...categoryEditor, gender: e.target.value })}
+                  disabled={savingCategory}
+                  className="w-full rounded-lg border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-cyan-500/40 focus:border-cyan-500"
+                >
+                  <option value="male">Masculino</option>
+                  <option value="female">Femenino</option>
+                  <option value="mixed">Mixto</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-300 mb-1">Nivel</label>
+                <Input
+                  value={categoryEditor.level}
+                  onChange={e => setCategoryEditor({ ...categoryEditor, level: e.target.value })}
+                  placeholder="Ej: 2ª / 3ª"
+                  disabled={savingCategory}
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-medium text-slate-300 mb-1">Máx. equipos</label>
+                <Input
+                  type="number"
+                  min={2}
+                  max={64}
+                  value={categoryEditor.max_teams}
+                  onChange={e => setCategoryEditor({ ...categoryEditor, max_teams: parseInt(e.target.value || '12') })}
+                  disabled={savingCategory || categoryEditor.mode === 'edit'}
+                />
+                {categoryEditor.mode === 'edit' && (
+                  <p className="text-[11px] text-slate-500 mt-1">No editable desde esta pantalla.</p>
+                )}
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-300 mb-1">Estado</label>
+                <select
+                  value={categoryEditor.status}
+                  onChange={e => setCategoryEditor({ ...categoryEditor, status: e.target.value })}
+                  disabled={savingCategory}
+                  className="w-full rounded-lg border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-cyan-500/40 focus:border-cyan-500"
+                >
+                  <option value="registration">Inscripción</option>
+                  <option value="active">En juego</option>
+                  <option value="finished">Finalizada</option>
+                  <option value="cancelled">Cancelada</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="flex gap-2 justify-end pt-2">
+              <Button variant="ghost" onClick={() => setCategoryEditor(null)} disabled={savingCategory}>
+                Cancelar
+              </Button>
+              <Button onClick={saveCategory} disabled={savingCategory} className="flex items-center gap-1">
+                {savingCategory ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+                {categoryEditor.mode === 'create' ? 'Crear' : 'Guardar'}
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* Modal confirmar borrado de categoría */}
+      {deletingCategory && (
+        <Modal
+          open={!!deletingCategory}
+          onClose={() => { if (!confirmingDeleteCategory) { setDeletingCategory(null); setDeletingCategoryReason('') } }}
+          title={`Borrar categoría — ${deletingCategory.category.name}`}
+        >
+          <div className="space-y-4">
+            <div className="rounded-lg border border-red-500/40 bg-red-500/10 p-3 flex gap-3">
+              <AlertTriangle size={18} className="text-red-400 shrink-0 mt-0.5" />
+              <div className="text-xs text-red-200 space-y-1">
+                <p><strong>Esta acción no se puede deshacer.</strong></p>
+                <p>Al borrar la categoría se eliminarán automáticamente <strong>en cascada</strong>:</p>
+                <ul className="list-disc pl-4 space-y-0.5">
+                  <li><strong>{deletingCategory.teamsCount}</strong> equipo(s)</li>
+                  <li><strong>{deletingCategory.roundsCount}</strong> jornada(s)</li>
+                  <li><strong>{deletingCategory.matchesCount}</strong> partido(s) de fase regular</li>
+                  {deletingCategory.playoffCount > 0 && (
+                    <li><strong>{deletingCategory.playoffCount}</strong> partido(s) de playoff</li>
+                  )}
+                </ul>
+                {(deletingCategory.matchesCount + deletingCategory.playoffCount) > 0 && (
+                  <p className="pt-1">Los <strong>resultados de los partidos ya jugados se perderán</strong>.</p>
+                )}
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-slate-300 mb-1">
+                Motivo del borrado <span className="text-red-400">*</span>
+              </label>
+              <textarea
+                value={deletingCategoryReason}
+                onChange={e => setDeletingCategoryReason(e.target.value)}
+                placeholder="Ej: Categoría creada por error en la importación. Se duplicó con 'Mixto B - Grupo 2' que es la correcta."
+                rows={3}
+                className="w-full rounded-lg border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-cyan-500/40 focus:border-cyan-500"
+                disabled={confirmingDeleteCategory}
+                autoFocus
+              />
+              <p className="text-[11px] text-slate-500 mt-1">
+                Quedará registrado junto con tu nombre, snapshot completo de la categoría y todos los equipos que tenía.
+              </p>
+            </div>
+
+            <div className="flex gap-2 justify-end pt-2">
+              <Button
+                variant="ghost"
+                onClick={() => { setDeletingCategory(null); setDeletingCategoryReason('') }}
+                disabled={confirmingDeleteCategory}
+              >
+                Cancelar
+              </Button>
+              <Button
+                onClick={confirmDeleteCategory}
+                disabled={confirmingDeleteCategory || deletingCategoryReason.trim().length < 3}
+                className="bg-red-600 hover:bg-red-700 flex items-center gap-1"
+              >
+                {confirmingDeleteCategory
+                  ? <Loader2 size={14} className="animate-spin" />
+                  : <Trash2 size={14} />}
+                {confirmingDeleteCategory ? 'Borrando…' : 'Borrar categoría'}
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* Modal historial de borrados */}
+      {showDeletionHistory && (
+        <Modal
+          open={showDeletionHistory}
+          onClose={() => setShowDeletionHistory(false)}
+          title="Historial de equipos borrados"
+          size="xl"
+        >
+          {loadingHistory ? (
+            <div className="py-12 text-center text-slate-500">
+              <Loader2 size={24} className="animate-spin mx-auto mb-2" />
+              Cargando historial…
+            </div>
+          ) : deletionHistory.length === 0 ? (
+            <div className="py-12 text-center">
+              <History size={40} className="mx-auto text-slate-600 mb-3" />
+              <p className="text-sm text-slate-400">Sin registros todavía.</p>
+              <p className="text-xs text-slate-500 mt-1">Cuando borres un equipo, el registro aparecerá acá.</p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <div className="flex items-center gap-3 text-xs text-slate-400 pb-2 border-b border-slate-700/50">
+                <span><strong className="text-white">{deletionHistory.length}</strong> borrado(s) en esta liga</span>
+                <span className="text-slate-600">·</span>
+                <span>
+                  <strong className="text-white">
+                    {deletionHistory.reduce((acc, r) => acc + r.matches_deleted + r.playoff_matches_deleted, 0)}
+                  </strong> partido(s) borrados en cascada
+                </span>
+              </div>
+              {deletionHistory.map(rec => {
+                const players = [rec.player1_name, rec.player2_name, rec.player3_name].filter(Boolean)
+                const totalM = rec.matches_deleted + rec.playoff_matches_deleted
+                const catName = categories.find(c => c.id === rec.category_id)?.name
+                return (
+                  <div key={rec.id} className="rounded-lg border border-slate-700/50 bg-slate-800/40 p-3 text-xs">
+                    <div className="flex items-start justify-between gap-3 mb-2">
+                      <div>
+                        <div className="font-semibold text-white text-sm">
+                          {rec.team_name ?? `(sin nombre — #${rec.original_team_id})`}
+                        </div>
+                        <div className="text-slate-500 text-[11px]">
+                          {catName ? `Categoría ${catName}` : 'Categoría borrada'}
+                          {' · '}
+                          {players.length > 0 ? players.join(' / ') : 'sin jugadores'}
+                        </div>
+                      </div>
+                      <div className="text-right shrink-0">
+                        <Badge variant={totalM > 0 ? 'warning' : 'default'}>
+                          {totalM > 0 ? `${totalM} partido(s)` : 'sin partidos'}
+                        </Badge>
+                      </div>
+                    </div>
+                    <div className="rounded bg-slate-900/50 border-l-2 border-red-500/50 px-3 py-2 text-slate-300 italic mb-2">
+                      “{rec.reason}”
+                    </div>
+                    <div className="flex items-center justify-between text-[11px] text-slate-500">
+                      <span>
+                        Borrado por{' '}
+                        <strong className="text-slate-300">
+                          {rec.deleted_by_name ?? rec.deleted_by_email ?? 'usuario desconocido'}
+                        </strong>
+                      </span>
+                      <span>{formatDate(rec.created_at)}</span>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
         </Modal>
       )}
     </div>
