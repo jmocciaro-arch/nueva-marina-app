@@ -103,11 +103,27 @@ export default function LigaDetallePage() {
   })
   const [savingMatch, setSavingMatch] = useState(false)
 
-  // Round date modal (rango: inicio + fin de la semana de juego)
+  // Round date modal (rango: inicio + fin de la semana de juego + estado)
   const [editingRound, setEditingRound] = useState<Round | null>(null)
   const [roundDate, setRoundDate] = useState('')
   const [roundDeadline, setRoundDeadline] = useState('')
+  const [roundStatus, setRoundStatus] = useState('pending')
+  const [roundNumber, setRoundNumber] = useState<number>(1)
   const [savingRound, setSavingRound] = useState(false)
+
+  // Borrar jornada
+  const [deletingRound, setDeletingRound] = useState<{ round: Round; matchesCount: number } | null>(null)
+  const [confirmingDeleteRound, setConfirmingDeleteRound] = useState(false)
+
+  // Crear partido
+  const [creatingMatchInRound, setCreatingMatchInRound] = useState<Round | null>(null)
+  const [newMatchTeam1, setNewMatchTeam1] = useState<number | null>(null)
+  const [newMatchTeam2, setNewMatchTeam2] = useState<number | null>(null)
+  const [creatingMatch, setCreatingMatch] = useState(false)
+
+  // Borrar partido
+  const [deletingMatch, setDeletingMatch] = useState<Match | null>(null)
+  const [confirmingDeleteMatch, setConfirmingDeleteMatch] = useState(false)
 
   // Link player modal
   const [linking, setLinking] = useState<{ team: Team; slot: 1 | 2 | 3 } | null>(null)
@@ -728,6 +744,8 @@ export default function LigaDetallePage() {
   function openEditRound(r: Round) {
     setEditingRound(r)
     setRoundDate(r.scheduled_date ?? '')
+    setRoundStatus(r.status ?? 'pending')
+    setRoundNumber(r.round_number)
     // Si no hay deadline pero sí inicio, sugerir +6 días
     const suggestedEnd = r.deadline_date
       ? r.deadline_date
@@ -743,16 +761,123 @@ export default function LigaDetallePage() {
       toast('error', 'La fecha fin no puede ser anterior al inicio')
       return
     }
+    if (roundNumber < 1) {
+      toast('error', 'El número de jornada debe ser ≥ 1')
+      return
+    }
     setSavingRound(true)
     const supabase = createClient()
     const { error } = await supabase.from('nm_league_rounds').update({
       scheduled_date: roundDate || null,
       deadline_date: roundDeadline || null,
+      status: roundStatus,
+      round_number: roundNumber,
     }).eq('id', editingRound.id)
     if (error) { toast('error', error.message); setSavingRound(false); return }
-    toast('success', 'Fecha actualizada')
+    toast('success', 'Jornada actualizada')
     setEditingRound(null); setSavingRound(false)
     load()
+  }
+
+  async function createRound() {
+    if (!cat) { toast('error', 'Elegí una categoría primero'); return }
+    const supabase = createClient()
+    const nextNumber = catRounds.length > 0
+      ? Math.max(...catRounds.map(r => r.round_number)) + 1
+      : 1
+    const { error } = await supabase.from('nm_league_rounds').insert({
+      category_id: cat.id,
+      round_number: nextNumber,
+      status: 'pending',
+    })
+    if (error) { toast('error', `No se pudo crear: ${error.message}`); return }
+    toast('success', `Jornada ${nextNumber} creada`)
+    load()
+  }
+
+  async function openDeleteRoundModal(round: Round) {
+    const supabase = createClient()
+    const { count } = await supabase
+      .from('nm_league_matches')
+      .select('id', { count: 'exact', head: true })
+      .eq('round_id', round.id)
+    setDeletingRound({ round, matchesCount: count ?? 0 })
+  }
+
+  async function confirmDeleteRound() {
+    if (!deletingRound) return
+    const { round, matchesCount } = deletingRound
+    setConfirmingDeleteRound(true)
+    try {
+      const supabase = createClient()
+      const { error } = await supabase
+        .from('nm_league_rounds')
+        .delete()
+        .eq('id', round.id)
+      if (error) { toast('error', `No se pudo borrar: ${error.message}`); return }
+      toast('success', `Jornada ${round.round_number} borrada${matchesCount > 0 ? ` con ${matchesCount} partido(s)` : ''}`)
+      setDeletingRound(null)
+      load()
+    } finally {
+      setConfirmingDeleteRound(false)
+    }
+  }
+
+  function openCreateMatchModal(round: Round) {
+    setCreatingMatchInRound(round)
+    setNewMatchTeam1(null)
+    setNewMatchTeam2(null)
+  }
+
+  async function createMatch() {
+    if (!creatingMatchInRound || !cat) return
+    if (!newMatchTeam1 || !newMatchTeam2) {
+      toast('error', 'Elegí los dos equipos')
+      return
+    }
+    if (newMatchTeam1 === newMatchTeam2) {
+      toast('error', 'Los dos equipos deben ser distintos')
+      return
+    }
+    setCreatingMatch(true)
+    try {
+      const supabase = createClient()
+      const { error } = await supabase.from('nm_league_matches').insert({
+        round_id: creatingMatchInRound.id,
+        category_id: cat.id,
+        team1_id: newMatchTeam1,
+        team2_id: newMatchTeam2,
+        status: 'scheduled',
+      })
+      if (error) { toast('error', `No se pudo crear: ${error.message}`); return }
+      toast('success', 'Partido creado')
+      setCreatingMatchInRound(null)
+      load()
+    } finally {
+      setCreatingMatch(false)
+    }
+  }
+
+  function openDeleteMatchModal(m: Match) {
+    setDeletingMatch(m)
+  }
+
+  async function confirmDeleteMatch() {
+    if (!deletingMatch) return
+    setConfirmingDeleteMatch(true)
+    try {
+      const supabase = createClient()
+      const { error } = await supabase
+        .from('nm_league_matches')
+        .delete()
+        .eq('id', deletingMatch.id)
+      if (error) { toast('error', `No se pudo borrar: ${error.message}`); return }
+      toast('success', 'Partido borrado')
+      setDeletingMatch(null)
+      load()
+    } finally {
+      setConfirmingDeleteMatch(false)
+    }
   }
 
   // ── Standings ─────────────────────────────────────────────────────────────
@@ -1064,9 +1189,18 @@ export default function LigaDetallePage() {
                       <Badge variant="warning">Sin fecha</Badge>
                     )}
                   </div>
-                  <Button variant="ghost" onClick={() => openEditRound(r)} className="flex items-center gap-1 text-xs">
-                    <Pencil size={12} /> Fecha
-                  </Button>
+                  <div className="flex items-center gap-1">
+                    <Button variant="ghost" onClick={() => openEditRound(r)} className="flex items-center gap-1 text-xs">
+                      <Pencil size={12} /> Editar
+                    </Button>
+                    <button
+                      onClick={() => openDeleteRoundModal(r)}
+                      title="Borrar jornada"
+                      className="p-1.5 rounded text-slate-500 hover:text-red-400 hover:bg-red-500/10 transition-colors"
+                    >
+                      <Trash2 size={12} />
+                    </button>
+                  </div>
                 </div>
 
                 {/* Layout: partidos a la izquierda, calendario del mes a la derecha */}
@@ -1079,10 +1213,13 @@ export default function LigaDetallePage() {
                       const played = m.status === 'completed'
                       const color = matchColor(idx)
                       return (
-                        <button
+                        <div
                           key={m.id}
+                          role="button"
+                          tabIndex={0}
                           onClick={() => openEditMatch(m)}
-                          className={`text-left rounded-lg border-l-4 ${color.border} border-y border-r border-slate-700/50 ${color.bg} hover:bg-slate-800/70 hover:border-slate-600 p-3 transition-colors`}
+                          onKeyDown={e => { if (e.key === 'Enter') openEditMatch(m) }}
+                          className={`text-left cursor-pointer rounded-lg border-l-4 ${color.border} border-y border-r border-slate-700/50 ${color.bg} hover:bg-slate-800/70 hover:border-slate-600 p-3 transition-colors`}
                         >
                           <div className="flex items-center justify-between gap-2 mb-1">
                             <div className="flex items-center gap-1.5">
@@ -1095,11 +1232,20 @@ export default function LigaDetallePage() {
                                 <span className="text-[10px] text-slate-500 italic">sin fecha</span>
                               )}
                             </div>
-                            {played ? (
-                              <span className="text-[10px] text-emerald-400 font-medium">JUGADO</span>
-                            ) : (
-                              <span className="text-[10px] text-slate-500">PENDIENTE</span>
-                            )}
+                            <div className="flex items-center gap-1.5">
+                              {played ? (
+                                <span className="text-[10px] text-emerald-400 font-medium">JUGADO</span>
+                              ) : (
+                                <span className="text-[10px] text-slate-500">PENDIENTE</span>
+                              )}
+                              <button
+                                onClick={e => { e.stopPropagation(); openDeleteMatchModal(m) }}
+                                title="Borrar partido"
+                                className="p-0.5 rounded text-slate-500 hover:text-red-400 hover:bg-red-500/10 transition-colors"
+                              >
+                                <Trash2 size={10} />
+                              </button>
+                            </div>
                           </div>
                           <div className="flex items-center justify-between gap-2">
                             <div className="min-w-0 flex-1">
@@ -1118,9 +1264,16 @@ export default function LigaDetallePage() {
                               </div>
                             )}
                           </div>
-                        </button>
+                        </div>
                       )
                     })}
+                    {/* Botón + Partido */}
+                    <button
+                      onClick={() => openCreateMatchModal(r)}
+                      className="rounded-lg border border-dashed border-slate-700 hover:border-cyan-500/60 hover:bg-slate-800/40 p-3 text-xs text-slate-400 hover:text-cyan-400 transition-colors flex items-center justify-center gap-1"
+                    >
+                      <Plus size={14} /> Agregar partido
+                    </button>
                   </div>
 
                   {/* Calendario del mes completo */}
@@ -1136,6 +1289,15 @@ export default function LigaDetallePage() {
               </Card>
             )
           })}
+          {/* Botón crear nueva jornada */}
+          {cat && (
+            <button
+              onClick={createRound}
+              className="w-full rounded-xl border border-dashed border-slate-700 hover:border-cyan-500/60 hover:bg-slate-800/40 py-4 text-sm text-slate-400 hover:text-cyan-400 transition-colors flex items-center justify-center gap-2"
+            >
+              <Plus size={16} /> Agregar jornada nueva
+            </button>
+          )}
         </>
       )}
 
@@ -1399,12 +1561,36 @@ export default function LigaDetallePage() {
         )
       })()}
 
-      {/* Modal fecha jornada (rango: inicio + fin de semana) */}
+      {/* Modal editar jornada (fechas + estado + número) */}
       {editingRound && (
-        <Modal open={!!editingRound} onClose={() => setEditingRound(null)} title={`Fecha — Jornada ${editingRound.round_number}`}>
+        <Modal open={!!editingRound} onClose={() => setEditingRound(null)} title={`Editar Jornada ${editingRound.round_number}`}>
           <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs text-slate-400 mb-1">Número de jornada</label>
+                <Input
+                  type="number"
+                  min={1}
+                  value={roundNumber}
+                  onChange={e => setRoundNumber(parseInt(e.target.value || '1'))}
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-slate-400 mb-1">Estado</label>
+                <select
+                  value={roundStatus}
+                  onChange={e => setRoundStatus(e.target.value)}
+                  className="w-full rounded-lg border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-cyan-500/40 focus:border-cyan-500"
+                >
+                  <option value="pending">Pendiente</option>
+                  <option value="active">En curso</option>
+                  <option value="completed">Completada</option>
+                  <option value="cancelled">Cancelada</option>
+                </select>
+              </div>
+            </div>
             <p className="text-xs text-slate-400">
-              La jornada se juega entre dos fechas (ej: <em>Lunes 13 al Domingo 19</em>).
+              Rango de fechas de la jornada (ej: <em>Lun 13 al Dom 19</em>).
               Los partidos individuales se fechan al cargar el resultado.
             </p>
             <div className="grid grid-cols-2 gap-3">
@@ -1416,7 +1602,6 @@ export default function LigaDetallePage() {
                   onChange={e => {
                     const val = e.target.value
                     setRoundDate(val)
-                    // auto-sugerir +6 días si el fin está vacío o es previo al nuevo inicio
                     if (val && (!roundDeadline || roundDeadline < val)) {
                       setRoundDeadline(addDays(val, 6))
                     }
@@ -1452,7 +1637,7 @@ export default function LigaDetallePage() {
                 onClick={() => { setRoundDate(''); setRoundDeadline('') }}
                 className="text-xs text-red-400 hover:text-red-300"
               >
-                Limpiar
+                Limpiar fechas
               </Button>
             </div>
             <div className="flex gap-2 justify-end">
@@ -1460,6 +1645,130 @@ export default function LigaDetallePage() {
               <Button onClick={saveRoundDate} disabled={savingRound} className="flex items-center gap-1">
                 {savingRound ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
                 Guardar
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* Modal confirmar borrado de jornada */}
+      {deletingRound && (
+        <Modal
+          open={!!deletingRound}
+          onClose={() => { if (!confirmingDeleteRound) setDeletingRound(null) }}
+          title={`Borrar Jornada ${deletingRound.round.round_number}`}
+        >
+          <div className="space-y-4">
+            <div className="rounded-lg border border-red-500/40 bg-red-500/10 p-3 flex gap-3">
+              <AlertTriangle size={18} className="text-red-400 shrink-0 mt-0.5" />
+              <div className="text-xs text-red-200 space-y-1">
+                <p><strong>Esta acción no se puede deshacer.</strong></p>
+                {deletingRound.matchesCount > 0 ? (
+                  <p>
+                    Se van a borrar también <strong>{deletingRound.matchesCount}</strong> partido(s)
+                    de esta jornada, incluyendo resultados cargados.
+                  </p>
+                ) : (
+                  <p>La jornada no tiene partidos.</p>
+                )}
+              </div>
+            </div>
+            <div className="flex gap-2 justify-end">
+              <Button variant="ghost" onClick={() => setDeletingRound(null)} disabled={confirmingDeleteRound}>
+                Cancelar
+              </Button>
+              <Button
+                onClick={confirmDeleteRound}
+                disabled={confirmingDeleteRound}
+                className="bg-red-600 hover:bg-red-700 flex items-center gap-1"
+              >
+                {confirmingDeleteRound ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
+                Borrar jornada
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* Modal crear partido */}
+      {creatingMatchInRound && cat && (
+        <Modal
+          open={!!creatingMatchInRound}
+          onClose={() => { if (!creatingMatch) setCreatingMatchInRound(null) }}
+          title={`Nuevo partido — Jornada ${creatingMatchInRound.round_number}`}
+        >
+          <div className="space-y-4">
+            <div>
+              <label className="block text-xs text-slate-400 mb-1">Equipo 1</label>
+              <select
+                value={newMatchTeam1 ?? ''}
+                onChange={e => setNewMatchTeam1(e.target.value ? parseInt(e.target.value) : null)}
+                className="w-full rounded-lg border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-cyan-500/40 focus:border-cyan-500"
+              >
+                <option value="">Elegir equipo…</option>
+                {catTeams.map(t => (
+                  <option key={t.id} value={t.id}>{t.team_name ?? `Equipo #${t.id}`}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs text-slate-400 mb-1">Equipo 2</label>
+              <select
+                value={newMatchTeam2 ?? ''}
+                onChange={e => setNewMatchTeam2(e.target.value ? parseInt(e.target.value) : null)}
+                className="w-full rounded-lg border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-cyan-500/40 focus:border-cyan-500"
+              >
+                <option value="">Elegir equipo…</option>
+                {catTeams.filter(t => t.id !== newMatchTeam1).map(t => (
+                  <option key={t.id} value={t.id}>{t.team_name ?? `Equipo #${t.id}`}</option>
+                ))}
+              </select>
+            </div>
+            <div className="flex gap-2 justify-end">
+              <Button variant="ghost" onClick={() => setCreatingMatchInRound(null)} disabled={creatingMatch}>
+                Cancelar
+              </Button>
+              <Button onClick={createMatch} disabled={creatingMatch} className="flex items-center gap-1">
+                {creatingMatch ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
+                Crear partido
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* Modal confirmar borrado de partido */}
+      {deletingMatch && (
+        <Modal
+          open={!!deletingMatch}
+          onClose={() => { if (!confirmingDeleteMatch) setDeletingMatch(null) }}
+          title="Borrar partido"
+        >
+          <div className="space-y-4">
+            {(() => {
+              const t1 = teams.find(t => t.id === deletingMatch.team1_id)
+              const t2 = teams.find(t => t.id === deletingMatch.team2_id)
+              return (
+                <div className="rounded-lg border border-red-500/40 bg-red-500/10 p-3 flex gap-3">
+                  <AlertTriangle size={18} className="text-red-400 shrink-0 mt-0.5" />
+                  <div className="text-xs text-red-200 space-y-1">
+                    <p><strong>{t1?.team_name ?? '?'}</strong> vs <strong>{t2?.team_name ?? '?'}</strong></p>
+                    <p>Se va a eliminar el partido {deletingMatch.status === 'completed' ? 'y su resultado' : ''}. Esta acción no se puede deshacer.</p>
+                  </div>
+                </div>
+              )
+            })()}
+            <div className="flex gap-2 justify-end">
+              <Button variant="ghost" onClick={() => setDeletingMatch(null)} disabled={confirmingDeleteMatch}>
+                Cancelar
+              </Button>
+              <Button
+                onClick={confirmDeleteMatch}
+                disabled={confirmingDeleteMatch}
+                className="bg-red-600 hover:bg-red-700 flex items-center gap-1"
+              >
+                {confirmingDeleteMatch ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
+                Borrar partido
               </Button>
             </div>
           </div>
