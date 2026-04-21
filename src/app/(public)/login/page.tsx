@@ -29,9 +29,9 @@ function LoginForm() {
   const [fullName, setFullName] = useState('')
   const [phone, setPhone] = useState('')
   // Datos ficha jugador (registro)
-  const [dniNie, setDniNie] = useState('')
   const [birthDate, setBirthDate] = useState('')
-  const [padelLevel, setPadelLevel] = useState('')
+  const [region, setRegion] = useState('')
+  const [categories, setCategories] = useState<string[]>([])  // máx 2
   const [padelPosition, setPadelPosition] = useState('')
   // GDPR consents
   const [consentImage, setConsentImage] = useState(false)
@@ -104,9 +104,9 @@ function LoginForm() {
           first_name: fullName.split(' ')[0],
           last_name: fullName.split(' ').slice(1).join(' '),
           phone,
-          dni_nie: dniNie || null,
           birth_date: birthDate || null,
-          padel_level: padelLevel || null,
+          city: region || null,
+          padel_level: categories.length > 0 ? categories.join(',') : null,
           padel_position: padelPosition || null,
           consent_image_use: consentImage,
           consent_data_public: consentDataPublic,
@@ -147,7 +147,7 @@ function LoginForm() {
     }
   }, [
     isRegister, email, password, fullName, phone, redirect, router, executeRecaptcha,
-    dniNie, birthDate, padelLevel, padelPosition,
+    birthDate, region, categories, padelPosition,
     consentImage, consentDataPublic, consentTerms,
   ])
 
@@ -220,12 +220,30 @@ function LoginForm() {
                     onChange={e => setBirthDate(e.target.value)}
                   />
                 </div>
-                <Input
-                  label="DNI / NIE"
-                  placeholder="12345678A"
-                  value={dniNie}
-                  onChange={e => setDniNie(e.target.value.toUpperCase())}
-                />
+                <div className="space-y-1">
+                  <label className="block text-sm font-medium text-slate-300">Zona</label>
+                  <select
+                    value={region}
+                    onChange={e => setRegion(e.target.value)}
+                    className="w-full rounded-lg border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-cyan-500/40 focus:border-cyan-500"
+                  >
+                    <option value="">Elegí tu zona…</option>
+                    <option value="Motril">Motril</option>
+                    <option value="Granada">Granada</option>
+                    <option value="Málaga">Málaga</option>
+                    <option value="Almería">Almería</option>
+                    <option value="Sevilla">Sevilla</option>
+                    <option value="Madrid">Madrid</option>
+                    <option value="Barcelona">Barcelona</option>
+                    <option value="Valencia">Valencia</option>
+                    <option value="Murcia">Murcia</option>
+                    <option value="Bilbao">Bilbao</option>
+                    <option value="Zaragoza">Zaragoza</option>
+                    <option value="Palma de Mallorca">Palma de Mallorca</option>
+                    <option value="Las Palmas">Las Palmas</option>
+                    <option value="Otra">Otra</option>
+                  </select>
+                </div>
 
                 {/* === Credenciales === */}
                 <div className="pt-2 pb-2 border-b border-slate-700/50">
@@ -266,37 +284,62 @@ function LoginForm() {
                 <div className="pt-2 pb-2 border-b border-slate-700/50">
                   <p className="text-[11px] uppercase tracking-wider text-slate-500 font-semibold">Perfil de pádel</p>
                 </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div className="space-y-1">
-                    <label className="block text-sm font-medium text-slate-300">Nivel</label>
-                    <select
-                      value={padelLevel}
-                      onChange={e => setPadelLevel(e.target.value)}
-                      className="w-full rounded-lg border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-cyan-500/40 focus:border-cyan-500"
-                    >
-                      <option value="">Elegí tu nivel…</option>
-                      <option value="iniciacion">Iniciación</option>
-                      <option value="2.0">2.0 · Principiante</option>
-                      <option value="3.0">3.0 · Intermedio bajo</option>
-                      <option value="4.0">4.0 · Intermedio</option>
-                      <option value="5.0">5.0 · Intermedio alto</option>
-                      <option value="6.0">6.0 · Avanzado</option>
-                      <option value="7.0">7.0+ · Competición</option>
-                    </select>
+
+                <div className="space-y-2">
+                  <label className="block text-sm font-medium text-slate-300">
+                    Categoría <span className="text-[11px] text-slate-500 font-normal">(elegí hasta 2)</span>
+                  </label>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                    {['Iniciación', '2ª', '3ª', '4ª', '5ª', '6ª'].map(cat => {
+                      const selected = categories.includes(cat)
+                      const disabled = !selected && categories.length >= 2
+                      return (
+                        <label
+                          key={cat}
+                          className={[
+                            'flex items-center gap-2 rounded-lg border px-3 py-2 text-sm cursor-pointer transition-colors',
+                            selected
+                              ? 'border-cyan-500 bg-cyan-500/10 text-cyan-300'
+                              : disabled
+                                ? 'border-slate-700 bg-slate-800/30 text-slate-600 cursor-not-allowed'
+                                : 'border-slate-600 bg-slate-800 text-slate-300 hover:border-slate-500',
+                          ].join(' ')}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={selected}
+                            disabled={disabled}
+                            onChange={e => {
+                              if (e.target.checked) {
+                                if (categories.length < 2) setCategories([...categories, cat])
+                              } else {
+                                setCategories(categories.filter(c => c !== cat))
+                              }
+                            }}
+                            className="w-4 h-4 rounded border-slate-600 bg-slate-900 text-cyan-500 focus:ring-cyan-500/40"
+                          />
+                          <span>{cat}</span>
+                        </label>
+                      )
+                    })}
                   </div>
-                  <div className="space-y-1">
-                    <label className="block text-sm font-medium text-slate-300">Lado de pista</label>
-                    <select
-                      value={padelPosition}
-                      onChange={e => setPadelPosition(e.target.value)}
-                      className="w-full rounded-lg border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-cyan-500/40 focus:border-cyan-500"
-                    >
-                      <option value="">Elegí un lado…</option>
-                      <option value="drive">Derecha (drive)</option>
-                      <option value="reves">Revés</option>
-                      <option value="ambos">Ambos</option>
-                    </select>
-                  </div>
+                  {categories.length > 0 && (
+                    <p className="text-[11px] text-slate-500">Elegidas: {categories.join(', ')}</p>
+                  )}
+                </div>
+
+                <div className="space-y-1">
+                  <label className="block text-sm font-medium text-slate-300">Lado de pista</label>
+                  <select
+                    value={padelPosition}
+                    onChange={e => setPadelPosition(e.target.value)}
+                    className="w-full rounded-lg border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-cyan-500/40 focus:border-cyan-500"
+                  >
+                    <option value="">Elegí un lado…</option>
+                    <option value="drive">Derecha (drive)</option>
+                    <option value="reves">Revés</option>
+                    <option value="ambos">Ambos</option>
+                  </select>
                 </div>
 
                 {/* === Privacidad (GDPR / LOPDGDD) === */}
