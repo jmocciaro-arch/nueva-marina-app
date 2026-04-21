@@ -28,6 +28,15 @@ function LoginForm() {
   const [isRegister, setIsRegister] = useState(false)
   const [fullName, setFullName] = useState('')
   const [phone, setPhone] = useState('')
+  // Datos ficha jugador (registro)
+  const [dniNie, setDniNie] = useState('')
+  const [birthDate, setBirthDate] = useState('')
+  const [padelLevel, setPadelLevel] = useState('')
+  const [padelPosition, setPadelPosition] = useState('')
+  // GDPR consents
+  const [consentImage, setConsentImage] = useState(false)
+  const [consentDataPublic, setConsentDataPublic] = useState(false)
+  const [consentTerms, setConsentTerms] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const router = useRouter()
@@ -52,6 +61,13 @@ function LoginForm() {
     const supabase = createClient()
 
     if (isRegister) {
+      // Validación mínima de consents obligatorios
+      if (!consentTerms) {
+        setError('Tenés que aceptar los términos y la política de privacidad para registrarte.')
+        setLoading(false)
+        return
+      }
+
       // Verify captcha for registration
       if (!executeRecaptcha) {
         setError('Error al cargar captcha. Recarga la pagina.')
@@ -79,7 +95,8 @@ function LoginForm() {
         return
       }
       if (data.user) {
-        // Create nm_users profile
+        const now = new Date().toISOString()
+        // Create nm_users profile con ficha completa + consents GDPR
         await supabase.from('nm_users').upsert({
           id: data.user.id,
           email,
@@ -87,6 +104,13 @@ function LoginForm() {
           first_name: fullName.split(' ')[0],
           last_name: fullName.split(' ').slice(1).join(' '),
           phone,
+          dni_nie: dniNie || null,
+          birth_date: birthDate || null,
+          padel_level: padelLevel || null,
+          padel_position: padelPosition || null,
+          consent_image_use: consentImage,
+          consent_data_public: consentDataPublic,
+          consent_accepted_at: now,
         })
         // Create club membership (club_id = 1 for Nueva Marina)
         await supabase.from('nm_club_members').insert({
@@ -121,7 +145,11 @@ function LoginForm() {
       }
       router.push(redirect)
     }
-  }, [isRegister, email, password, fullName, phone, redirect, router, executeRecaptcha])
+  }, [
+    isRegister, email, password, fullName, phone, redirect, router, executeRecaptcha,
+    dniNie, birthDate, padelLevel, padelPosition,
+    consentImage, consentDataPublic, consentTerms,
+  ])
 
   async function handleGoogleLogin() {
     const supabase = createClient()
@@ -134,8 +162,8 @@ function LoginForm() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-[#0b1120] px-4">
-      <div className="w-full max-w-md">
+    <div className="min-h-screen flex items-center justify-center bg-[#0b1120] px-4 py-8">
+      <div className={`w-full ${isRegister ? 'max-w-xl' : 'max-w-md'}`}>
         {/* Logo */}
         <div className="text-center mb-8">
           <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-cyan-600 mb-4">
@@ -147,9 +175,14 @@ function LoginForm() {
 
         {/* Card */}
         <div className="bg-slate-800/50 border border-slate-700/50 rounded-xl p-6">
-          <h2 className="text-lg font-semibold text-white mb-6">
+          <h2 className="text-lg font-semibold text-white mb-1">
             {isRegister ? 'Crear cuenta' : 'Iniciar sesion'}
           </h2>
+          {isRegister && (
+            <p className="text-xs text-slate-400 mb-6">
+              Completá tus datos para sumarte al club. Después podés agregar una foto en tu ficha.
+            </p>
+          )}
 
           {error && (
             <div className="mb-4 p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-sm text-red-400">
@@ -158,64 +191,201 @@ function LoginForm() {
           )}
 
           <form onSubmit={handleSubmit} className="space-y-4">
-            {isRegister && (
+            {isRegister ? (
               <>
+                {/* === Datos personales === */}
+                <div className="pb-2 border-b border-slate-700/50">
+                  <p className="text-[11px] uppercase tracking-wider text-slate-500 font-semibold">Datos personales</p>
+                </div>
                 <Input
-                  label="Nombre completo"
-                  placeholder="Juan Perez"
+                  label="Nombre completo *"
+                  placeholder="Juan Pérez"
                   value={fullName}
                   onChange={e => setFullName(e.target.value)}
                   required
                 />
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <Input
+                    label="Teléfono *"
+                    type="tel"
+                    placeholder="+34 600 000 000"
+                    value={phone}
+                    onChange={e => setPhone(e.target.value)}
+                    required
+                  />
+                  <Input
+                    label="Fecha de nacimiento"
+                    type="date"
+                    value={birthDate}
+                    onChange={e => setBirthDate(e.target.value)}
+                  />
+                </div>
                 <Input
-                  label="Telefono"
-                  type="tel"
-                  placeholder="+34 600 000 000"
-                  value={phone}
-                  onChange={e => setPhone(e.target.value)}
+                  label="DNI / NIE"
+                  placeholder="12345678A"
+                  value={dniNie}
+                  onChange={e => setDniNie(e.target.value.toUpperCase())}
                 />
-              </>
-            )}
-            <Input
-              label="Email"
-              type="email"
-              placeholder="tu@email.com"
-              value={email}
-              onChange={e => setEmail(e.target.value)}
-              required
-            />
-            {/* Password with eye toggle */}
-            <div className="space-y-1">
-              <label className="block text-sm font-medium text-slate-300">Contrasena</label>
-              <div className="relative">
-                <input
-                  type={showPassword ? 'text' : 'password'}
-                  placeholder="********"
-                  value={password}
-                  onChange={e => setPassword(e.target.value)}
-                  required
-                  minLength={6}
-                  className="w-full rounded-lg border border-slate-600 bg-slate-800 px-3 py-2 pr-10 text-sm text-white placeholder-slate-500 transition-colors focus:outline-none focus:ring-2 focus:ring-cyan-500/40 focus:border-cyan-500"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-white transition-colors"
-                  tabIndex={-1}
-                >
-                  {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-                </button>
-              </div>
-            </div>
 
-            {isRegister && (
-              <p className="text-xs text-slate-500">
-                Este sitio esta protegido por reCAPTCHA de Google.
-              </p>
+                {/* === Credenciales === */}
+                <div className="pt-2 pb-2 border-b border-slate-700/50">
+                  <p className="text-[11px] uppercase tracking-wider text-slate-500 font-semibold">Acceso</p>
+                </div>
+                <Input
+                  label="Email *"
+                  type="email"
+                  placeholder="tu@email.com"
+                  value={email}
+                  onChange={e => setEmail(e.target.value)}
+                  required
+                />
+                <div className="space-y-1">
+                  <label className="block text-sm font-medium text-slate-300">Contraseña *</label>
+                  <div className="relative">
+                    <input
+                      type={showPassword ? 'text' : 'password'}
+                      placeholder="Mínimo 6 caracteres"
+                      value={password}
+                      onChange={e => setPassword(e.target.value)}
+                      required
+                      minLength={6}
+                      className="w-full rounded-lg border border-slate-600 bg-slate-800 px-3 py-2 pr-10 text-sm text-white placeholder-slate-500 transition-colors focus:outline-none focus:ring-2 focus:ring-cyan-500/40 focus:border-cyan-500"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-white transition-colors"
+                      tabIndex={-1}
+                    >
+                      {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                    </button>
+                  </div>
+                </div>
+
+                {/* === Perfil de pádel === */}
+                <div className="pt-2 pb-2 border-b border-slate-700/50">
+                  <p className="text-[11px] uppercase tracking-wider text-slate-500 font-semibold">Perfil de pádel</p>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="space-y-1">
+                    <label className="block text-sm font-medium text-slate-300">Nivel</label>
+                    <select
+                      value={padelLevel}
+                      onChange={e => setPadelLevel(e.target.value)}
+                      className="w-full rounded-lg border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-cyan-500/40 focus:border-cyan-500"
+                    >
+                      <option value="">Elegí tu nivel…</option>
+                      <option value="iniciacion">Iniciación</option>
+                      <option value="2.0">2.0 · Principiante</option>
+                      <option value="3.0">3.0 · Intermedio bajo</option>
+                      <option value="4.0">4.0 · Intermedio</option>
+                      <option value="5.0">5.0 · Intermedio alto</option>
+                      <option value="6.0">6.0 · Avanzado</option>
+                      <option value="7.0">7.0+ · Competición</option>
+                    </select>
+                  </div>
+                  <div className="space-y-1">
+                    <label className="block text-sm font-medium text-slate-300">Lado de pista</label>
+                    <select
+                      value={padelPosition}
+                      onChange={e => setPadelPosition(e.target.value)}
+                      className="w-full rounded-lg border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-cyan-500/40 focus:border-cyan-500"
+                    >
+                      <option value="">Elegí un lado…</option>
+                      <option value="drive">Derecha (drive)</option>
+                      <option value="reves">Revés</option>
+                      <option value="ambos">Ambos</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* === Privacidad (GDPR / LOPDGDD) === */}
+                <div className="pt-4 mt-4 border-t border-slate-700/50 space-y-3">
+                  <div className="flex items-start gap-3">
+                    <input
+                      type="checkbox"
+                      id="consent-terms"
+                      checked={consentTerms}
+                      onChange={e => setConsentTerms(e.target.checked)}
+                      className="mt-1 w-4 h-4 rounded border-slate-600 bg-slate-800 text-cyan-500 focus:ring-cyan-500/40"
+                    />
+                    <label htmlFor="consent-terms" className="text-xs text-slate-300 leading-relaxed">
+                      Acepto los <Link href="/terminos" className="text-cyan-400 hover:underline" target="_blank">términos y condiciones</Link> y
+                      la <Link href="/privacidad" className="text-cyan-400 hover:underline" target="_blank">política de privacidad</Link> (RGPD).
+                      <span className="text-red-400 ml-1">*</span>
+                    </label>
+                  </div>
+
+                  <div className="flex items-start gap-3">
+                    <input
+                      type="checkbox"
+                      id="consent-data"
+                      checked={consentDataPublic}
+                      onChange={e => setConsentDataPublic(e.target.checked)}
+                      className="mt-1 w-4 h-4 rounded border-slate-600 bg-slate-800 text-cyan-500 focus:ring-cyan-500/40"
+                    />
+                    <label htmlFor="consent-data" className="text-xs text-slate-300 leading-relaxed">
+                      Autorizo mostrar <strong>mi nombre y categoría</strong> en <strong>rankings y ligas públicas</strong> del club.
+                      <span className="text-slate-500 block text-[11px]">Si no aceptás, aparecés como &quot;Jugador N&quot; en las páginas públicas.</span>
+                    </label>
+                  </div>
+
+                  <div className="flex items-start gap-3">
+                    <input
+                      type="checkbox"
+                      id="consent-image"
+                      checked={consentImage}
+                      onChange={e => setConsentImage(e.target.checked)}
+                      className="mt-1 w-4 h-4 rounded border-slate-600 bg-slate-800 text-cyan-500 focus:ring-cyan-500/40"
+                    />
+                    <label htmlFor="consent-image" className="text-xs text-slate-300 leading-relaxed">
+                      Autorizo el uso de <strong>mi imagen</strong> (fotos/videos de partidos y torneos) en el sitio web y redes sociales del club.
+                      <span className="text-slate-500 block text-[11px]">Podés cambiar estas preferencias cuando quieras desde &quot;Mi ficha&quot;.</span>
+                    </label>
+                  </div>
+                </div>
+
+                <p className="text-[11px] text-slate-500 pt-2">
+                  Este sitio está protegido por reCAPTCHA de Google.
+                </p>
+              </>
+            ) : (
+              <>
+                <Input
+                  label="Email"
+                  type="email"
+                  placeholder="tu@email.com"
+                  value={email}
+                  onChange={e => setEmail(e.target.value)}
+                  required
+                />
+                <div className="space-y-1">
+                  <label className="block text-sm font-medium text-slate-300">Contraseña</label>
+                  <div className="relative">
+                    <input
+                      type={showPassword ? 'text' : 'password'}
+                      placeholder="********"
+                      value={password}
+                      onChange={e => setPassword(e.target.value)}
+                      required
+                      minLength={6}
+                      className="w-full rounded-lg border border-slate-600 bg-slate-800 px-3 py-2 pr-10 text-sm text-white placeholder-slate-500 transition-colors focus:outline-none focus:ring-2 focus:ring-cyan-500/40 focus:border-cyan-500"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-white transition-colors"
+                      tabIndex={-1}
+                    >
+                      {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                    </button>
+                  </div>
+                </div>
+              </>
             )}
 
             <Button type="submit" loading={loading} className="w-full">
-              {isRegister ? 'Registrarse' : 'Entrar'}
+              {isRegister ? 'Crear cuenta' : 'Entrar'}
             </Button>
           </form>
 
