@@ -287,12 +287,11 @@ function LoginForm() {
 
                 <div className="space-y-2">
                   <label className="block text-sm font-medium text-slate-300">
-                    Categoría <span className="text-[11px] text-slate-500 font-normal">(elegí hasta 2)</span>
+                    Categorías que jugás <span className="text-[11px] text-slate-500 font-normal">(marcá todas las que correspondan)</span>
                   </label>
                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                    {['Iniciación', '2ª', '3ª', '4ª', '5ª', '6ª'].map(cat => {
+                    {['Iniciación', '2ª', '3ª', '4ª', '5ª', '6ª', '45+', '50+'].map(cat => {
                       const selected = categories.includes(cat)
-                      const disabled = !selected && categories.length >= 2
                       return (
                         <label
                           key={cat}
@@ -300,18 +299,15 @@ function LoginForm() {
                             'flex items-center gap-2 rounded-lg border px-3 py-2 text-sm cursor-pointer transition-colors',
                             selected
                               ? 'border-cyan-500 bg-cyan-500/10 text-cyan-300'
-                              : disabled
-                                ? 'border-slate-700 bg-slate-800/30 text-slate-600 cursor-not-allowed'
-                                : 'border-slate-600 bg-slate-800 text-slate-300 hover:border-slate-500',
+                              : 'border-slate-600 bg-slate-800 text-slate-300 hover:border-slate-500',
                           ].join(' ')}
                         >
                           <input
                             type="checkbox"
                             checked={selected}
-                            disabled={disabled}
                             onChange={e => {
                               if (e.target.checked) {
-                                if (categories.length < 2) setCategories([...categories, cat])
+                                setCategories([...categories, cat])
                               } else {
                                 setCategories(categories.filter(c => c !== cat))
                               }

@@ -218,8 +218,38 @@ export default function MiFichaPage() {
               ))}
             </div>
           </Field>
-          <Field label="Nivel / categoría">
-            <input value={padelLevel} onChange={e => setPadelLevel(e.target.value)} className={inputCls} placeholder="5ta, 4ta, 45+..." />
+          <Field label="Categorías que jugás">
+            <p className="text-[11px] text-slate-500 mb-2">Marcá todas las categorías en las que competís.</p>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+              {['Iniciación', '2ª', '3ª', '4ª', '5ª', '6ª', '45+', '50+'].map(cat => {
+                const current = padelLevel ? padelLevel.split(',').map(s => s.trim()).filter(Boolean) : []
+                const selected = current.includes(cat)
+                return (
+                  <label
+                    key={cat}
+                    className={[
+                      'flex items-center gap-2 rounded-lg border px-3 py-2 text-sm cursor-pointer transition-colors',
+                      selected
+                        ? 'border-cyan-500 bg-cyan-500/10 text-cyan-300'
+                        : 'border-slate-700 bg-slate-800 text-slate-300 hover:border-slate-500',
+                    ].join(' ')}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selected}
+                      onChange={e => {
+                        const next = e.target.checked
+                          ? [...current, cat]
+                          : current.filter(c => c !== cat)
+                        setPadelLevel(next.join(','))
+                      }}
+                      className="w-4 h-4 rounded border-slate-600 bg-slate-900 text-cyan-500 focus:ring-cyan-500/40"
+                    />
+                    <span>{cat}</span>
+                  </label>
+                )
+              })}
+            </div>
           </Field>
         </Section>
 
