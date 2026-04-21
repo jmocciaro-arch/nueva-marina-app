@@ -12,7 +12,7 @@ interface UserData {
   phone: string | null
   avatar_url: string | null
   birth_date: string | null
-  dni_nie: string | null
+  city: string | null
   address: string | null
   postal_code: string | null
   padel_position: 'drive' | 'reves' | 'ambos' | null
@@ -35,7 +35,7 @@ export default function MiFichaPage() {
   const [email, setEmail] = useState('')
   const [phone, setPhone] = useState('')
   const [birthDate, setBirthDate] = useState('')
-  const [dniNie, setDniNie] = useState('')
+  const [city, setCity] = useState('')
   const [address, setAddress] = useState('')
   const [postalCode, setPostalCode] = useState('')
   const [padelPosition, setPadelPosition] = useState<'drive' | 'reves' | 'ambos' | ''>('')
@@ -53,7 +53,7 @@ export default function MiFichaPage() {
     const supabase = createClient()
     supabase
       .from('nm_users')
-      .select('full_name, email, phone, avatar_url, birth_date, dni_nie, address, postal_code, padel_position, padel_level, emergency_contact, medical_notes, consent_image_use, consent_data_public, profile_completed_at')
+      .select('full_name, email, phone, avatar_url, birth_date, city, address, postal_code, padel_position, padel_level, emergency_contact, medical_notes, consent_image_use, consent_data_public, profile_completed_at')
       .eq('id', user.id)
       .single()
       .then(({ data }) => {
@@ -63,7 +63,7 @@ export default function MiFichaPage() {
           setEmail(u.email ?? '')
           setPhone(u.phone ?? '')
           setBirthDate(u.birth_date ?? '')
-          setDniNie(u.dni_nie ?? '')
+          setCity(u.city ?? '')
           setAddress(u.address ?? '')
           setPostalCode(u.postal_code ?? '')
           setPadelPosition((u.padel_position as 'drive' | 'reves' | 'ambos' | null) ?? '')
@@ -106,7 +106,7 @@ export default function MiFichaPage() {
           full_name: fullName.trim(),
           phone: phone.trim() || null,
           birth_date: birthDate || null,
-          dni_nie: dniNie.trim() || null,
+          city: city || null,
           address: address.trim() || null,
           postal_code: postalCode.trim() || null,
           padel_position: padelPosition || null,
@@ -168,8 +168,11 @@ export default function MiFichaPage() {
           <Field label="Nombre completo *">
             <input value={fullName} onChange={e => setFullName(e.target.value)} required className={inputCls} />
           </Field>
-          <Field label="Email">
-            <input value={email} disabled className={`${inputCls} opacity-60`} />
+          <Field label="Email (cuenta)">
+            <input value={email} disabled className={`${inputCls} opacity-60 cursor-not-allowed`} />
+            <p className="text-[11px] text-slate-500 mt-1">
+              El email es el de tu cuenta. Para cambiarlo tenés que contactar con el club.
+            </p>
           </Field>
           <Field label="Teléfono">
             <input value={phone} onChange={e => setPhone(e.target.value)} type="tel" className={inputCls} />
@@ -177,14 +180,30 @@ export default function MiFichaPage() {
           <Field label="Fecha de nacimiento">
             <input value={birthDate} onChange={e => setBirthDate(e.target.value)} type="date" className={inputCls} />
           </Field>
-          <Field label="DNI / NIE">
-            <input value={dniNie} onChange={e => setDniNie(e.target.value)} className={inputCls} />
+          <Field label="Zona / localidad">
+            <select value={city} onChange={e => setCity(e.target.value)} className={inputCls}>
+              <option value="">Elegí tu zona…</option>
+              <option value="Motril">Motril</option>
+              <option value="Granada">Granada</option>
+              <option value="Málaga">Málaga</option>
+              <option value="Almería">Almería</option>
+              <option value="Sevilla">Sevilla</option>
+              <option value="Madrid">Madrid</option>
+              <option value="Barcelona">Barcelona</option>
+              <option value="Valencia">Valencia</option>
+              <option value="Murcia">Murcia</option>
+              <option value="Bilbao">Bilbao</option>
+              <option value="Zaragoza">Zaragoza</option>
+              <option value="Palma de Mallorca">Palma de Mallorca</option>
+              <option value="Las Palmas">Las Palmas</option>
+              <option value="Otra">Otra</option>
+            </select>
           </Field>
-          <Field label="Dirección">
-            <input value={address} onChange={e => setAddress(e.target.value)} className={inputCls} />
+          <Field label="Dirección (opcional)">
+            <input value={address} onChange={e => setAddress(e.target.value)} className={inputCls} placeholder="Calle, número…" />
           </Field>
-          <Field label="Código postal">
-            <input value={postalCode} onChange={e => setPostalCode(e.target.value)} className={inputCls} />
+          <Field label="Código postal (opcional)">
+            <input value={postalCode} onChange={e => setPostalCode(e.target.value)} className={inputCls} placeholder="18600" />
           </Field>
         </Section>
 
@@ -218,7 +237,7 @@ export default function MiFichaPage() {
           <ConsentToggle title="Datos públicos" description="¿Autorizás a mostrar tu nombre y categoría en rankings públicos?" value={consentData} onChange={setConsentData} />
           <div className="rounded-lg bg-slate-800/50 border border-slate-700 p-3 text-xs text-slate-400 flex gap-2">
             <Shield size={16} className="shrink-0 mt-0.5 text-cyan-400" />
-            <p>Tus datos (teléfono, DNI, dirección) son de uso interno del club.</p>
+            <p>Tus datos de contacto (teléfono, dirección) son de uso interno del club.</p>
           </div>
         </Section>
 
