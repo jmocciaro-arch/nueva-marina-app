@@ -75,6 +75,9 @@ export default function GestionJugadoresPage() {
   const [members, setMembers] = useState<MemberRow[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
+  const [filterStatus, setFilterStatus] = useState<'all' | 'active' | 'inactive'>('all')
+  const [filterCategory, setFilterCategory] = useState('all')
+  const [filterPosition, setFilterPosition] = useState('all')
 
   // ── Modal edición ──
   const [editTarget, setEditTarget] = useState<MemberRow | null>(null)
@@ -174,15 +177,39 @@ export default function GestionJugadoresPage() {
   // Filtrado por búsqueda
   // ─────────────────────────────────────────────────────────────
   const filtered = members.filter(m => {
-    if (!search.trim()) return true
-    const q = search.toLowerCase()
-    const name = m.user?.full_name ?? `${m.user?.first_name ?? ''} ${m.user?.last_name ?? ''}`.trim()
-    return (
-      name.toLowerCase().includes(q) ||
-      (m.user?.email ?? '').toLowerCase().includes(q) ||
-      (m.user?.phone ?? '').includes(q) ||
-      m.role.includes(q)
-    )
+    // Estado
+    if (filterStatus === 'active' && !m.is_active) return false
+    if (filterStatus === 'inactive' && m.is_active) return false
+
+    // Categoría (padel_level se guarda como CSV)
+    if (filterCategory !== 'all') {
+      const userLevel = (m.user as User & { padel_level?: string })?.padel_level
+      const levels = userLevel ? userLevel.split(',').map(s => s.trim()) : []
+      if (filterCategory === 'none') {
+        if (levels.length > 0) return false
+      } else {
+        if (!levels.includes(filterCategory)) return false
+      }
+    }
+
+    // Posición
+    if (filterPosition !== 'all') {
+      const userPos = (m.user as User & { padel_position?: string })?.padel_position
+      if (userPos !== filterPosition) return false
+    }
+
+    // Búsqueda texto
+    if (search.trim()) {
+      const q = search.toLowerCase()
+      const name = m.user?.full_name ?? `${m.user?.first_name ?? ''} ${m.user?.last_name ?? ''}`.trim()
+      if (
+        !name.toLowerCase().includes(q) &&
+        !(m.user?.email ?? '').toLowerCase().includes(q) &&
+        !(m.user?.phone ?? '').includes(q)
+      ) return false
+    }
+
+    return true
   })
 
   // ─────────────────────────────────────────────────────────────
@@ -384,19 +411,68 @@ export default function GestionJugadoresPage() {
         />
       </div>
 
-      {/* Barra de búsqueda */}
-      <div className="relative max-w-sm">
-        <Search
-          size={16}
-          className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"
-        />
-        <input
-          type="text"
-          placeholder="Buscar por nombre, email o rol..."
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          className="w-full rounded-lg border border-slate-600 bg-slate-800 pl-9 pr-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-cyan-500/40 focus:border-cyan-500"
-        />
+      {/* Filtros */}
+      <div className="flex flex-col md:flex-row gap-3">
+        <div className="relative flex-1 max-w-sm">
+          <Search
+            size={16}
+            className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"
+          />
+          <input
+            type="text"
+            placeholder="Buscar por nombre, email o teléfono..."
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            className="w-full rounded-lg border border-slate-600 bg-slate-800 pl-9 pr-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-cyan-500/40 focus:border-cyan-500"
+          />
+        </div>
+
+        <select
+          value={filterStatus}
+          onChange={e => setFilterStatus(e.target.value as 'all' | 'active' | 'inactive')}
+          className="rounded-lg border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-cyan-500/40 focus:border-cyan-500"
+        >
+          <option value="all">Todos los estados</option>
+          <option value="active">Solo activos</option>
+          <option value="inactive">Solo inactivos</option>
+        </select>
+
+        <select
+          value={filterCategory}
+          onChange={e => setFilterCategory(e.target.value)}
+          className="rounded-lg border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-cyan-500/40 focus:border-cyan-500"
+        >
+          <option value="all">Todas las categorías</option>
+          <option value="Iniciación">Iniciación</option>
+          <option value="2ª">2ª</option>
+          <option value="3ª">3ª</option>
+          <option value="4ª">4ª</option>
+          <option value="5ª">5ª</option>
+          <option value="6ª">6ª</option>
+          <option value="45+">45+</option>
+          <option value="50+">50+</option>
+          <option value="none">Sin categoría</option>
+        </select>
+
+        <select
+          value={filterPosition}
+          onChange={e => setFilterPosition(e.target.value)}
+          className="rounded-lg border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-cyan-500/40 focus:border-cyan-500"
+        >
+          <option value="all">Cualquier lado</option>
+          <option value="drive">Drive</option>
+          <option value="reves">Revés</option>
+          <option value="ambos">Ambos</option>
+        </select>
+
+        {(filterStatus !== 'all' || filterCategory !== 'all' || filterPosition !== 'all' || search) && (
+          <button
+            onClick={() => { setFilterStatus('all'); setFilterCategory('all'); setFilterPosition('all'); setSearch('') }}
+            className="px-3 py-2 text-xs text-slate-400 hover:text-red-400 transition-colors"
+          >
+            Limpiar
+          </button>
+        )}
       </div>
 
       {/* Tabla */}
