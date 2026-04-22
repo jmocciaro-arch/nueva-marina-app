@@ -244,7 +244,7 @@ export default function GestionUsuariosPage() {
   }
 
   // ─────────────────────────────────────────────────────────────
-  // Cambiar rol desde detalle
+  // Cambiar rol desde detalle (legacy — se mantiene para compat)
   // ─────────────────────────────────────────────────────────────
   async function handleChangeRole() {
     if (!detailUser || !selectedRole) return
@@ -266,6 +266,139 @@ export default function GestionUsuariosPage() {
       })
     }
     setEditingRole(false)
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // Exportar usuarios + roles a CSV (editable masivo)
+  // ─────────────────────────────────────────────────────────────
+  async function handleExportCSV() {
+    const supabase = createClient()
+    const { data: allMembers } = await supabase
+      .from('nm_club_members')
+      .select('user_id, is_player, is_gym_member, is_staff, staff_role, role')
+      .eq('club_id', 1)
+    const membersMap: Record<string, { is_player: boolean; is_gym_member: boolean; is_staff: boolean; staff_role: string | null; role: string }> = {}
+    for (const m of allMembers ?? []) {
+      membersMap[m.user_id] = {
+        is_player: !!m.is_player,
+        is_gym_member: !!m.is_gym_member,
+        is_staff: !!m.is_staff,
+        staff_role: m.staff_role ?? null,
+        role: m.role,
+      }
+    }
+    const escape = (v: unknown) => {
+      if (v === null || v === undefined) return ''
+      const s = String(v)
+      if (s.includes(',') || s.includes('"') || s.includes('\n')) return `"${s.replace(/"/g, '""')}"`
+      return s
+    }
+    const header = ['user_id', 'email', 'full_name', 'phone', 'is_player', 'is_gym_member', 'is_staff', 'staff_role']
+    const lines = [header.join(',')]
+    for (const u of users) {
+      const m = membersMap[u.id] ?? { is_player: false, is_gym_member: false, is_staff: false, staff_role: null, role: '' }
+      lines.push([
+        u.id,
+        escape(u.email),
+        escape(u.full_name ?? ''),
+        escape(u.phone ?? ''),
+        m.is_player ? 'true' : 'false',
+        m.is_gym_member ? 'true' : 'false',
+        m.is_staff ? 'true' : 'false',
+        escape(m.staff_role ?? ''),
+      ].join(','))
+    }
+    const csv = lines.join('\n')
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `usuarios_roles_${new Date().toISOString().slice(0, 10)}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+    toast('success', `Exportados ${users.length} usuarios`)
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // Importar CSV con roles masivos (actualiza flags de muchos usuarios)
+  // ─────────────────────────────────────────────────────────────
+  async function handleImportRolesCSV(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const text = await file.text()
+    const lines = text.split(/\r?\n/).filter(l => l.trim())
+    if (lines.length < 2) { toast('error', 'El CSV está vacío'); return }
+
+    const parseCsvRow = (line: string): string[] => {
+      const out: string[] = []
+      let cur = ''
+      let inQ = false
+      for (let i = 0; i < line.length; i++) {
+        const c = line[i]
+        if (c === '"') { inQ = !inQ; continue }
+        if (c === ',' && !inQ) { out.push(cur); cur = ''; continue }
+        cur += c
+      }
+      out.push(cur)
+      return out.map(s => s.trim())
+    }
+
+    const header = parseCsvRow(lines[0]).map(h => h.toLowerCase())
+    const idx = {
+      user_id: header.indexOf('user_id'),
+      is_player: header.indexOf('is_player'),
+      is_gym: header.indexOf('is_gym_member'),
+      is_staff: header.indexOf('is_staff'),
+      staff_role: header.indexOf('staff_role'),
+    }
+    if (idx.user_id < 0) { toast('error', 'Falta columna user_id'); return }
+
+    const supabase = createClient()
+    let updated = 0
+    let failed = 0
+    for (const line of lines.slice(1)) {
+      const cols = parseCsvRow(line)
+      const userId = cols[idx.user_id]
+      if (!userId) continue
+      const payload: Record<string, unknown> = {}
+      if (idx.is_player >= 0) payload.is_player = cols[idx.is_player]?.toLowerCase() === 'true'
+      if (idx.is_gym >= 0) payload.is_gym_member = cols[idx.is_gym]?.toLowerCase() === 'true'
+      if (idx.is_staff >= 0) payload.is_staff = cols[idx.is_staff]?.toLowerCase() === 'true'
+      if (idx.staff_role >= 0) payload.staff_role = cols[idx.staff_role] || null
+      const { error } = await supabase
+        .from('nm_club_members')
+        .update(payload)
+        .eq('user_id', userId)
+        .eq('club_id', 1)
+      if (error) failed++
+      else updated++
+    }
+    toast('success', `Actualizados: ${updated} · Errores: ${failed}`)
+    loadUsers()
+    // Limpiar input
+    e.target.value = ''
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // Toggle flags múltiples (jugador / socio gym / staff)
+  // ─────────────────────────────────────────────────────────────
+  async function toggleRoleFlag(userId: string, flag: 'is_player' | 'is_gym_member' | 'is_staff', value: boolean, staffRole?: string) {
+    const supabase = createClient()
+    const payload: Record<string, unknown> = { [flag]: value }
+    if (flag === 'is_staff' && value && staffRole) {
+      payload.staff_role = staffRole
+    }
+    if (flag === 'is_staff' && !value) {
+      payload.staff_role = null
+    }
+    const { error } = await supabase
+      .from('nm_club_members')
+      .update(payload)
+      .eq('user_id', userId)
+      .eq('club_id', 1)
+    if (error) { toast('error', error.message); return false }
+    toast('success', 'Actualizado')
+    return true
   }
 
   // ─────────────────────────────────────────────────────────────
@@ -465,15 +598,26 @@ export default function GestionUsuariosPage() {
           <h1 className="text-2xl font-bold text-white">Gestión de Usuarios</h1>
           <p className="text-sm text-slate-400 mt-1">Cuentas, roles y permisos</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <Button variant="primary" size="sm" onClick={() => setCreateOpen(true)}>
             <UserPlus size={14} />
             Nuevo Usuario
           </Button>
+          <Button variant="secondary" size="sm" onClick={handleExportCSV}>
+            <Upload size={14} style={{ transform: 'rotate(180deg)' }} />
+            Exportar roles
+          </Button>
+          <label className="cursor-pointer">
+            <input type="file" accept=".csv" onChange={handleImportRolesCSV} className="hidden" />
+            <span className="inline-flex items-center gap-2 px-3 py-1.5 text-xs rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200 font-medium">
+              <Upload size={14} />
+              Importar roles
+            </span>
+          </label>
           <Link href="/admin/importar">
             <Button variant="secondary" size="sm">
               <Upload size={14} />
-              Importar CSV
+              Virtuagym
             </Button>
           </Link>
           <Button variant="secondary" size="sm" onClick={loadUsers} loading={loading}>
@@ -609,23 +753,28 @@ export default function GestionUsuariosPage() {
               </div>
             </div>
 
-            {/* Cambiar rol inline */}
-            <div className="flex items-center gap-2 px-3 py-2 bg-slate-700/30 rounded-lg">
-              <span className="text-xs text-slate-400">Rol:</span>
-              <select
-                value={selectedRole}
-                onChange={e => setSelectedRole(e.target.value)}
-                className="bg-slate-800 border border-slate-600 rounded px-2 py-1 text-sm text-white flex-1"
-              >
-                <option value="player">Jugador</option>
-                <option value="staff">Staff</option>
-                <option value="admin">Administrador</option>
-                <option value="owner">Propietario</option>
-              </select>
-              <Button size="sm" onClick={handleChangeRole} loading={editingRole} disabled={selectedRole === getUserRole(detailUser.id)}>
-                Cambiar
-              </Button>
-            </div>
+            {/* Roles múltiples: una persona puede ser jugador + socio gym + staff */}
+            <RoleFlagsPanel userId={detailUser.id} onChange={toggleRoleFlag} />
+
+            {/* Legacy: rol principal (solo si hace falta) */}
+            <details className="px-3 py-2 bg-slate-700/30 rounded-lg">
+              <summary className="text-xs text-slate-500 cursor-pointer">Rol legacy (compat)</summary>
+              <div className="flex items-center gap-2 mt-2">
+                <select
+                  value={selectedRole}
+                  onChange={e => setSelectedRole(e.target.value)}
+                  className="bg-slate-800 border border-slate-600 rounded px-2 py-1 text-sm text-white flex-1"
+                >
+                  <option value="player">Jugador</option>
+                  <option value="staff">Staff</option>
+                  <option value="admin">Administrador</option>
+                  <option value="owner">Propietario</option>
+                </select>
+                <Button size="sm" onClick={handleChangeRole} loading={editingRole} disabled={selectedRole === getUserRole(detailUser.id)}>
+                  Cambiar
+                </Button>
+              </div>
+            </details>
 
             <div className="rounded-lg bg-slate-700/40 divide-y divide-slate-700/60">
               <DetailRow icon={<Mail size={14} />} label="Email" value={detailUser.email} />
@@ -1172,4 +1321,110 @@ async function resizeImageFile(file: File, maxSide: number): Promise<string> {
   canvas.width = w; canvas.height = h
   canvas.getContext('2d')!.drawImage(img, 0, 0, w, h)
   return canvas.toDataURL('image/jpeg', 0.85)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Panel de roles múltiples (jugador / socio gym / staff)
+// ─────────────────────────────────────────────────────────────────────────────
+const STAFF_ROLES: Array<{ value: string; label: string }> = [
+  { value: 'owner', label: 'Propietario' },
+  { value: 'admin', label: 'Administrador' },
+  { value: 'monitor', label: 'Monitor' },
+  { value: 'camarero', label: 'Camarero' },
+  { value: 'limpieza', label: 'Limpieza' },
+  { value: 'gestor', label: 'Gestor' },
+  { value: 'vendedor', label: 'Vendedor' },
+  { value: 'coach', label: 'Entrenador' },
+]
+
+function RoleFlagsPanel({
+  userId,
+  onChange,
+}: {
+  userId: string
+  onChange: (userId: string, flag: 'is_player' | 'is_gym_member' | 'is_staff', value: boolean, staffRole?: string) => Promise<boolean>
+}) {
+  const [flags, setFlags] = useState<{ is_player: boolean; is_gym_member: boolean; is_staff: boolean; staff_role: string | null }>({
+    is_player: false, is_gym_member: false, is_staff: false, staff_role: null,
+  })
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    const supabase = createClient()
+    supabase
+      .from('nm_club_members')
+      .select('is_player, is_gym_member, is_staff, staff_role')
+      .eq('user_id', userId)
+      .eq('club_id', 1)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (data) {
+          setFlags({
+            is_player: !!data.is_player,
+            is_gym_member: !!data.is_gym_member,
+            is_staff: !!data.is_staff,
+            staff_role: data.staff_role ?? null,
+          })
+        }
+        setLoading(false)
+      })
+  }, [userId])
+
+  async function toggle(flag: 'is_player' | 'is_gym_member' | 'is_staff') {
+    const newVal = !flags[flag]
+    const ok = await onChange(userId, flag, newVal, flags.staff_role ?? 'monitor')
+    if (ok) setFlags(prev => ({ ...prev, [flag]: newVal, ...(flag === 'is_staff' && !newVal ? { staff_role: null } : {}) }))
+  }
+
+  async function changeStaffRole(role: string) {
+    const ok = await onChange(userId, 'is_staff', true, role)
+    if (ok) setFlags(prev => ({ ...prev, staff_role: role, is_staff: true }))
+  }
+
+  if (loading) return <div className="text-xs text-slate-500 py-2">Cargando roles…</div>
+
+  return (
+    <div className="space-y-2 p-3 bg-slate-700/30 rounded-lg">
+      <p className="text-xs font-semibold text-slate-300 uppercase tracking-wider">Roles</p>
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+        <RoleFlag label="🎾 Jugador de pádel" checked={flags.is_player} onChange={() => toggle('is_player')} />
+        <RoleFlag label="🏋️ Socio del gym" checked={flags.is_gym_member} onChange={() => toggle('is_gym_member')} />
+        <RoleFlag label="👔 Staff" checked={flags.is_staff} onChange={() => toggle('is_staff')} />
+      </div>
+      {flags.is_staff && (
+        <div className="mt-2">
+          <label className="block text-xs text-slate-400 mb-1">Tipo de staff</label>
+          <select
+            value={flags.staff_role ?? ''}
+            onChange={e => changeStaffRole(e.target.value)}
+            className="w-full bg-slate-800 border border-slate-600 rounded px-2 py-1.5 text-sm text-white"
+          >
+            <option value="">Elegí el tipo…</option>
+            {STAFF_ROLES.map(r => (
+              <option key={r.value} value={r.value}>{r.label}</option>
+            ))}
+          </select>
+        </div>
+      )}
+      <p className="text-[11px] text-slate-500 mt-2">
+        Una persona puede tener varios roles al mismo tiempo. Los cambios se guardan al instante.
+      </p>
+    </div>
+  )
+}
+
+function RoleFlag({ label, checked, onChange }: { label: string; checked: boolean; onChange: () => void }) {
+  return (
+    <label className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-sm cursor-pointer transition-colors ${
+      checked ? 'border-cyan-500 bg-cyan-500/10 text-cyan-300' : 'border-slate-600 bg-slate-800 text-slate-300 hover:border-slate-500'
+    }`}>
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={onChange}
+        className="w-4 h-4 rounded border-slate-600 bg-slate-900 text-cyan-500 focus:ring-cyan-500/40"
+      />
+      <span>{label}</span>
+    </label>
+  )
 }
