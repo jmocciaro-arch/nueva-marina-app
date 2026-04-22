@@ -78,6 +78,9 @@ export default function GestionJugadoresPage() {
   const [filterStatus, setFilterStatus] = useState<'all' | 'active' | 'inactive'>('all')
   const [filterCategory, setFilterCategory] = useState('all')
   const [filterPosition, setFilterPosition] = useState('all')
+  const [hideEmpty, setHideEmpty] = useState(true)   // Ocultar sin nombre/email
+  const [page, setPage] = useState(1)
+  const PAGE_SIZE = 15
 
   // ── Modal edición ──
   const [editTarget, setEditTarget] = useState<MemberRow | null>(null)
@@ -177,6 +180,13 @@ export default function GestionJugadoresPage() {
   // Filtrado por búsqueda
   // ─────────────────────────────────────────────────────────────
   const filtered = members.filter(m => {
+    // Sin datos (ocultar por default)
+    if (hideEmpty) {
+      const hasName = m.user?.full_name && m.user.full_name.trim() !== ''
+      const hasEmail = m.user?.email && m.user.email.includes('@')
+      if (!hasName && !hasEmail) return false
+    }
+
     // Estado
     if (filterStatus === 'active' && !m.is_active) return false
     if (filterStatus === 'inactive' && m.is_active) return false
@@ -211,6 +221,14 @@ export default function GestionJugadoresPage() {
 
     return true
   })
+
+  // Paginación
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
+  const currentPage = Math.min(page, totalPages)
+  const paged = filtered.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
+
+  // Reset de página cuando cambian los filtros
+  useEffect(() => { setPage(1) }, [search, filterStatus, filterCategory, filterPosition])
 
   // ─────────────────────────────────────────────────────────────
   // Abrir modal de edición
@@ -473,6 +491,16 @@ export default function GestionJugadoresPage() {
             Limpiar
           </button>
         )}
+
+        <label className="flex items-center gap-2 text-xs text-slate-400 cursor-pointer select-none px-3">
+          <input
+            type="checkbox"
+            checked={hideEmpty}
+            onChange={e => { setHideEmpty(e.target.checked); setPage(1) }}
+            className="w-4 h-4 rounded border-slate-600 bg-slate-800 text-cyan-500 focus:ring-cyan-500/40"
+          />
+          Ocultar sin datos
+        </label>
       </div>
 
       {/* Tabla */}
@@ -519,7 +547,7 @@ export default function GestionJugadoresPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-700/40">
-                {filtered.map(member => {
+                {paged.map(member => {
                   const displayName =
                     (member.user?.full_name ??
                     `${member.user?.first_name ?? ''} ${member.user?.last_name ?? ''}`.trim()) ||
@@ -606,8 +634,33 @@ export default function GestionJugadoresPage() {
 
         {/* Footer con conteo */}
         {!loading && filtered.length > 0 && (
-          <div className="px-4 py-3 border-t border-slate-700/40 text-xs text-slate-500">
-            Mostrando {filtered.length} de {totalMembers} jugadores · Admins y staff se gestionan en <a href="/admin/usuarios" className="text-cyan-400 hover:underline">Usuarios</a>
+          <div className="px-4 py-3 border-t border-slate-700/40 flex items-center justify-between flex-wrap gap-2">
+            <span className="text-xs text-slate-500">
+              Mostrando {(currentPage - 1) * PAGE_SIZE + 1}–{Math.min(currentPage * PAGE_SIZE, filtered.length)} de {filtered.length}
+              {hideEmpty ? ' con datos' : ''} · <a href="/admin/usuarios" className="text-cyan-400 hover:underline">Gestionar admins/staff</a>
+            </span>
+
+            {totalPages > 1 && (
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => setPage(Math.max(1, currentPage - 1))}
+                  disabled={currentPage === 1}
+                  className="px-2 py-1 text-xs rounded text-slate-400 hover:text-white hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  ← Anterior
+                </button>
+                <span className="text-xs text-slate-400 px-2">
+                  Página {currentPage} de {totalPages}
+                </span>
+                <button
+                  onClick={() => setPage(Math.min(totalPages, currentPage + 1))}
+                  disabled={currentPage === totalPages}
+                  className="px-2 py-1 text-xs rounded text-slate-400 hover:text-white hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  Siguiente →
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>
