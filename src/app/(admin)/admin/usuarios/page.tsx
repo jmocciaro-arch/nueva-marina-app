@@ -287,14 +287,16 @@ export default function GestionUsuariosPage() {
         role: m.role,
       }
     }
+    // Usamos ; como separador (Excel español lo abre directo) y BOM UTF-8 para que respete tildes
+    const SEP = ';'
     const escape = (v: unknown) => {
       if (v === null || v === undefined) return ''
       const s = String(v)
-      if (s.includes(',') || s.includes('"') || s.includes('\n')) return `"${s.replace(/"/g, '""')}"`
+      if (s.includes(SEP) || s.includes('"') || s.includes('\n')) return `"${s.replace(/"/g, '""')}"`
       return s
     }
     const header = ['user_id', 'email', 'full_name', 'phone', 'is_player', 'is_gym_member', 'is_staff', 'staff_role']
-    const lines = [header.join(',')]
+    const lines = [header.join(SEP)]
     for (const u of users) {
       const m = membersMap[u.id] ?? { is_player: false, is_gym_member: false, is_staff: false, staff_role: null, role: '' }
       lines.push([
@@ -306,9 +308,9 @@ export default function GestionUsuariosPage() {
         m.is_gym_member ? 'true' : 'false',
         m.is_staff ? 'true' : 'false',
         escape(m.staff_role ?? ''),
-      ].join(','))
+      ].join(SEP))
     }
-    const csv = lines.join('\n')
+    const csv = '\ufeff' + lines.join('\n')
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
@@ -327,7 +329,14 @@ export default function GestionUsuariosPage() {
     if (!file) return
     const text = await file.text()
     const lines = text.split(/\r?\n/).filter(l => l.trim())
-    if (lines.length < 2) { toast('error', 'El CSV está vacío'); return }
+    if (lines.length < 2) { toast('error', 'El CSV está vacío'); e.target.value = ''; return }
+
+    // Auto-detectar separador: coma, punto y coma o tab
+    // (Excel en español suele guardar con ';', Numbers con ',')
+    const firstLine = lines[0]
+    const separator = firstLine.includes(';') ? ';'
+      : firstLine.includes('\t') ? '\t'
+      : ','
 
     const parseCsvRow = (line: string): string[] => {
       const out: string[] = []
@@ -336,7 +345,7 @@ export default function GestionUsuariosPage() {
       for (let i = 0; i < line.length; i++) {
         const c = line[i]
         if (c === '"') { inQ = !inQ; continue }
-        if (c === ',' && !inQ) { out.push(cur); cur = ''; continue }
+        if (c === separator && !inQ) { out.push(cur); cur = ''; continue }
         cur += c
       }
       out.push(cur)
@@ -351,31 +360,50 @@ export default function GestionUsuariosPage() {
       is_staff: header.indexOf('is_staff'),
       staff_role: header.indexOf('staff_role'),
     }
-    if (idx.user_id < 0) { toast('error', 'Falta columna user_id'); return }
+    if (idx.user_id < 0) {
+      toast('error', `No encontré la columna 'user_id'. Separador detectado: "${separator === '\t' ? 'TAB' : separator}". Columnas: ${header.join(', ').slice(0, 100)}`)
+      e.target.value = ''
+      return
+    }
 
     const supabase = createClient()
     let updated = 0
     let failed = 0
+    const errors: string[] = []
     for (const line of lines.slice(1)) {
       const cols = parseCsvRow(line)
       const userId = cols[idx.user_id]
       if (!userId) continue
       const payload: Record<string, unknown> = {}
-      if (idx.is_player >= 0) payload.is_player = cols[idx.is_player]?.toLowerCase() === 'true'
-      if (idx.is_gym >= 0) payload.is_gym_member = cols[idx.is_gym]?.toLowerCase() === 'true'
-      if (idx.is_staff >= 0) payload.is_staff = cols[idx.is_staff]?.toLowerCase() === 'true'
+      const toBool = (v: string | undefined) => {
+        const s = (v ?? '').toLowerCase().trim()
+        return s === 'true' || s === 'verdadero' || s === 'si' || s === 'sí' || s === '1' || s === 'x'
+      }
+      if (idx.is_player >= 0) payload.is_player = toBool(cols[idx.is_player])
+      if (idx.is_gym >= 0) payload.is_gym_member = toBool(cols[idx.is_gym])
+      if (idx.is_staff >= 0) payload.is_staff = toBool(cols[idx.is_staff])
       if (idx.staff_role >= 0) payload.staff_role = cols[idx.staff_role] || null
       const { error } = await supabase
         .from('nm_club_members')
         .update(payload)
         .eq('user_id', userId)
         .eq('club_id', 1)
-      if (error) failed++
-      else updated++
+      if (error) {
+        failed++
+        if (errors.length < 3) errors.push(`${userId.slice(0, 8)}: ${error.message}`)
+      } else {
+        updated++
+      }
     }
-    toast('success', `Actualizados: ${updated} · Errores: ${failed}`)
+
+    if (updated === 0 && failed === 0) {
+      toast('error', `El CSV tiene ${lines.length - 1} filas pero ninguna se actualizó. Verificá separador y columna user_id.`)
+    } else if (failed > 0) {
+      toast('error', `Actualizados ${updated} · Fallaron ${failed} · ${errors.join(' · ')}`)
+    } else {
+      toast('success', `✓ Actualizados ${updated} usuarios`)
+    }
     loadUsers()
-    // Limpiar input
     e.target.value = ''
   }
 
