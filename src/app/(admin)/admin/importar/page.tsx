@@ -63,21 +63,21 @@ function parseCSV(text: string): ImportRow[] {
       .replace(/[óò]/g, 'o').replace(/[úù]/g, 'u')
       .replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '')
 
-    // Map common Virtuagym field names
+    // Map common Virtuagym field names (CSV real usa "firstname", "lastname", "zip_code", etc.)
     const mapping: Record<string, string> = {
       'id': 'member_id', 'member_id': 'member_id', 'miembro_id': 'member_id',
-      'nombre': 'first_name', 'first_name': 'first_name', 'name': 'first_name',
-      'apellido': 'last_name', 'apellidos': 'last_name', 'last_name': 'last_name', 'surname': 'last_name',
+      'nombre': 'first_name', 'first_name': 'first_name', 'firstname': 'first_name', 'name': 'first_name',
+      'apellido': 'last_name', 'apellidos': 'last_name', 'last_name': 'last_name', 'lastname': 'last_name', 'surname': 'last_name',
       'email': 'email', 'correo': 'email', 'e_mail': 'email', 'mail': 'email',
       'telefono': 'phone', 'phone': 'phone', 'tel': 'phone', 'mobile': 'phone', 'movil': 'phone',
       'fecha_nacimiento': 'date_of_birth', 'date_of_birth': 'date_of_birth', 'birthday': 'date_of_birth', 'birth_date': 'date_of_birth',
       'genero': 'gender', 'gender': 'gender', 'sexo': 'gender',
-      'direccion': 'address', 'address': 'address',
-      'codigo_postal': 'postal_code', 'postal_code': 'postal_code', 'zip': 'postal_code', 'cp': 'postal_code',
+      'direccion': 'address', 'address': 'address', 'street': 'address',
+      'codigo_postal': 'postal_code', 'postal_code': 'postal_code', 'zip': 'postal_code', 'zip_code': 'postal_code', 'cp': 'postal_code',
       'ciudad': 'city', 'city': 'city',
       'membresia': 'membership_name', 'membership': 'membership_name', 'membership_name': 'membership_name', 'plan': 'membership_name', 'abono': 'membership_name',
-      'inicio_membresia': 'membership_start', 'membership_start': 'membership_start', 'start_date': 'membership_start',
-      'fin_membresia': 'membership_end', 'membership_end': 'membership_end', 'end_date': 'membership_end',
+      'inicio_membresia': 'membership_start', 'membership_start': 'membership_start', 'start_date': 'membership_start', 'member_since': 'membership_start',
+      'fin_membresia': 'membership_end', 'membership_end': 'membership_end', 'end_date': 'membership_end', 'unsubscribe_date': 'membership_end',
       'estado': 'status', 'status': 'status', 'active': 'status',
     }
     return mapping[normalized] || normalized
