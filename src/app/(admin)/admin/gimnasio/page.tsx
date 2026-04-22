@@ -1854,7 +1854,7 @@ function ToggleSwitch({
   )
 }
 
-// ─── Tab: Socios (listado con link a ficha completa) ─────────────────────────
+// ─── Tab: Socios (listado desde nm_club_members.is_gym_member) ───────────────
 function SociosTab({
   memberships,
   users,
@@ -1864,16 +1864,42 @@ function SociosTab({
 }) {
   const [search, setSearch] = useState('')
   const [filterStatus, setFilterStatus] = useState<'all' | 'active' | 'expired'>('all')
+  const [page, setPage] = useState(1)
+  const [gymMemberUserIds, setGymMemberUserIds] = useState<Set<string>>(new Set())
+  const [playerUserIds, setPlayerUserIds] = useState<Set<string>>(new Set())
+  const [loading, setLoading] = useState(true)
+  const PAGE_SIZE = 15
 
-  const sociosMap = new Map<string, { user: GymUser | undefined; memberships: Membership[] }>()
-  for (const m of memberships) {
-    const existing = sociosMap.get(m.user_id)
-    if (existing) {
-      existing.memberships.push(m)
-    } else {
-      const user = users.find(u => u.id === m.user_id)
-      sociosMap.set(m.user_id, { user, memberships: [m] })
-    }
+  // Cargar flags de los miembros del club
+  useEffect(() => {
+    const supabase = createClient()
+    supabase
+      .from('nm_club_members')
+      .select('user_id, is_gym_member, is_player')
+      .eq('club_id', 1)
+      .then(({ data }) => {
+        const gym = new Set<string>()
+        const play = new Set<string>()
+        for (const m of data ?? []) {
+          if (m.is_gym_member) gym.add(m.user_id)
+          if (m.is_player) play.add(m.user_id)
+        }
+        setGymMemberUserIds(gym)
+        setPlayerUserIds(play)
+        setLoading(false)
+      })
+  }, [])
+
+  // Solo socios del gym (marcados en club_members)
+  const sociosMap = new Map<string, { user: GymUser | undefined; memberships: Membership[]; isPlayer: boolean }>()
+  for (const userId of gymMemberUserIds) {
+    const user = users.find(u => u.id === userId)
+    const userMemberships = memberships.filter(m => m.user_id === userId)
+    sociosMap.set(userId, {
+      user,
+      memberships: userMemberships,
+      isPlayer: playerUserIds.has(userId),
+    })
   }
   const socios = Array.from(sociosMap.values())
 
@@ -1889,6 +1915,26 @@ function SociosTab({
     }
     return true
   })
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
+  const currentPage = Math.min(page, totalPages)
+  const paged = filtered.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
+
+  async function togglePlayer(userId: string, current: boolean) {
+    const supabase = createClient()
+    const { error } = await supabase
+      .from('nm_club_members')
+      .update({ is_player: !current })
+      .eq('user_id', userId)
+      .eq('club_id', 1)
+    if (!error) {
+      setPlayerUserIds(prev => {
+        const next = new Set(prev)
+        if (current) next.delete(userId); else next.add(userId)
+        return next
+      })
+    }
+  }
 
   return (
     <div className="space-y-4">
@@ -1912,9 +1958,11 @@ function SociosTab({
       </div>
 
       <div className="rounded-xl border border-slate-700/50 bg-slate-800/50 overflow-hidden">
-        {filtered.length === 0 ? (
+        {loading ? (
+          <div className="p-12 text-center text-slate-500 text-sm">Cargando…</div>
+        ) : filtered.length === 0 ? (
           <div className="p-12 text-center text-slate-500 text-sm">
-            {search ? 'Sin resultados' : 'Todavía no hay socios del gym. Importá desde Virtuagym.'}
+            {search ? 'Sin resultados' : 'Todavía no hay socios del gym marcados.'}
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -1923,19 +1971,21 @@ function SociosTab({
                 <tr className="text-left text-slate-400 text-xs uppercase tracking-wider">
                   <th className="px-4 py-3">Socio</th>
                   <th className="px-4 py-3">Abono actual</th>
-                  <th className="px-4 py-3">Desde</th>
                   <th className="px-4 py-3">Hasta</th>
                   <th className="px-4 py-3">Estado</th>
+                  <th className="px-4 py-3 text-center">También jugador</th>
                   <th className="px-4 py-3 text-right"></th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800">
-                {filtered.map(s => {
+                {paged.map(s => {
                   const current = s.memberships.find(m => m.status === 'active' && (!m.end_date || m.end_date >= today))
                     ?? s.memberships[0]
-                  const isActive = current.status === 'active' && (!current.end_date || current.end_date >= today)
+                  const isActive = current?.status === 'active' && (!current.end_date || current.end_date >= today)
+                  const userId = s.user?.id ?? current?.user_id
+                  if (!userId) return null
                   return (
-                    <tr key={s.user?.id ?? current.user_id} className="hover:bg-slate-700/30">
+                    <tr key={userId} className="hover:bg-slate-700/30">
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-2">
                           <div className="h-7 w-7 rounded-full bg-slate-700 flex items-center justify-center text-xs font-bold text-cyan-400">
@@ -1947,17 +1997,28 @@ function SociosTab({
                           )}
                         </div>
                       </td>
-                      <td className="px-4 py-3 text-slate-300">{current.plan}</td>
-                      <td className="px-4 py-3 text-slate-400">{formatDate(current.start_date)}</td>
-                      <td className="px-4 py-3 text-slate-400">{current.end_date ? formatDate(current.end_date) : '—'}</td>
+                      <td className="px-4 py-3 text-slate-300">{current?.plan ?? '—'}</td>
+                      <td className="px-4 py-3 text-slate-400">{current?.end_date ? formatDate(current.end_date) : '—'}</td>
                       <td className="px-4 py-3">
                         <Badge variant={isActive ? 'success' : 'danger'}>
                           {isActive ? 'Activo' : 'Vencido'}
                         </Badge>
                       </td>
+                      <td className="px-4 py-3 text-center">
+                        <button
+                          onClick={() => togglePlayer(userId, s.isPlayer)}
+                          className={`px-2 py-1 text-xs rounded transition-colors ${
+                            s.isPlayer
+                              ? 'bg-cyan-500/20 text-cyan-400 hover:bg-cyan-500/30'
+                              : 'bg-slate-700 text-slate-400 hover:bg-slate-600'
+                          }`}
+                        >
+                          {s.isPlayer ? '✓ Sí' : 'Habilitar'}
+                        </button>
+                      </td>
                       <td className="px-4 py-3 text-right">
                         <Link
-                          href={`/admin/gimnasio/socio/${current.user_id}`}
+                          href={`/admin/gimnasio/socio/${userId}`}
                           className="text-cyan-400 hover:text-cyan-300 text-xs font-medium"
                         >
                           Ver ficha →
@@ -1971,8 +2032,29 @@ function SociosTab({
           </div>
         )}
         {filtered.length > 0 && (
-          <div className="px-4 py-3 border-t border-slate-700/40 text-xs text-slate-500">
-            {filtered.length} socio(s) · Click en &quot;Ver ficha&quot; para abrir ficha completa con físico, objetivos, accesos, facturación y notas.
+          <div className="px-4 py-3 border-t border-slate-700/40 flex items-center justify-between flex-wrap gap-2">
+            <span className="text-xs text-slate-500">
+              Mostrando {(currentPage - 1) * PAGE_SIZE + 1}–{Math.min(currentPage * PAGE_SIZE, filtered.length)} de {filtered.length}
+            </span>
+            {totalPages > 1 && (
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => setPage(Math.max(1, currentPage - 1))}
+                  disabled={currentPage === 1}
+                  className="px-2 py-1 text-xs rounded text-slate-400 hover:text-white hover:bg-slate-700 disabled:opacity-40"
+                >
+                  ← Anterior
+                </button>
+                <span className="text-xs text-slate-400 px-2">{currentPage} / {totalPages}</span>
+                <button
+                  onClick={() => setPage(Math.min(totalPages, currentPage + 1))}
+                  disabled={currentPage === totalPages}
+                  className="px-2 py-1 text-xs rounded text-slate-400 hover:text-white hover:bg-slate-700 disabled:opacity-40"
+                >
+                  Siguiente →
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>

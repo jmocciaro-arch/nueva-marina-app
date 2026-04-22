@@ -104,12 +104,12 @@ export default function GestionJugadoresPage() {
     try {
       const supabase = createClient()
 
-      // 1) Traer miembros del club (solo jugadores — admins/staff van en /admin/usuarios)
+      // 1) Traer solo miembros marcados como jugadores (is_player=true)
       const { data: membersData, error: membersError } = await supabase
         .from('nm_club_members')
         .select('*')
         .eq('club_id', CLUB_ID)
-        .eq('role', 'player')
+        .eq('is_player', true)
         .order('joined_at', { ascending: false })
 
       if (membersError) {
@@ -246,6 +246,17 @@ export default function GestionJugadoresPage() {
   // ─────────────────────────────────────────────────────────────
   // Guardar edición
   // ─────────────────────────────────────────────────────────────
+  async function toggleGymMember(memberId: number, current: boolean) {
+    const supabase = createClient()
+    const { error } = await supabase
+      .from('nm_club_members')
+      .update({ is_gym_member: !current })
+      .eq('id', memberId)
+    if (error) { toast('error', error.message); return }
+    toast('success', current ? 'Quitado de socios gym' : 'Habilitado como socio gym')
+    loadMembers()
+  }
+
   async function saveEdit() {
     if (!editTarget) return
     setSaving(true)
@@ -315,23 +326,27 @@ export default function GestionJugadoresPage() {
         .maybeSingle()
 
       if (existing) {
-        toast('warning', 'Este usuario ya es miembro del club')
-        return
+        // Ya es miembro: solo marcarlo como jugador
+        const { error } = await supabase
+          .from('nm_club_members')
+          .update({ is_player: true })
+          .eq('id', existing.id)
+        if (error) throw error
+        toast('success', `${foundUser.full_name ?? foundUser.email} ya era miembro · habilitado como jugador`)
+      } else {
+        const { error } = await supabase
+          .from('nm_club_members')
+          .insert({
+            club_id: CLUB_ID,
+            user_id: foundUser.id,
+            role: newRole,
+            is_active: true,
+            is_player: true,
+            permissions: [],
+          })
+        if (error) throw error
+        toast('success', `${foundUser.full_name ?? foundUser.email} agregado al club como jugador`)
       }
-
-      const { error } = await supabase
-        .from('nm_club_members')
-        .insert({
-          club_id: CLUB_ID,
-          user_id: foundUser.id,
-          role: newRole,
-          is_active: true,
-          permissions: [],
-        })
-
-      if (error) throw error
-
-      toast('success', `${foundUser.full_name ?? foundUser.email} agregado al club`)
       setShowAddModal(false)
       setSearchEmail('')
       setFoundUser(null)
@@ -541,6 +556,9 @@ export default function GestionJugadoresPage() {
                   <th className="px-4 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider">
                     Estado
                   </th>
+                  <th className="px-4 py-3 text-center text-xs font-medium text-slate-400 uppercase tracking-wider">
+                    Gym
+                  </th>
                   <th className="px-4 py-3 text-right text-xs font-medium text-slate-400 uppercase tracking-wider">
                     Acciones
                   </th>
@@ -611,6 +629,20 @@ export default function GestionJugadoresPage() {
                         <Badge variant={statusBadgeVariant(member.is_active)}>
                           {member.is_active ? 'Activo' : 'Inactivo'}
                         </Badge>
+                      </td>
+
+                      {/* Toggle Gym */}
+                      <td className="px-4 py-3 text-center">
+                        <button
+                          onClick={() => toggleGymMember(member.id, !!(member as ClubMember & { is_gym_member?: boolean }).is_gym_member)}
+                          className={`px-2 py-1 text-xs rounded transition-colors ${
+                            (member as ClubMember & { is_gym_member?: boolean }).is_gym_member
+                              ? 'bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30'
+                              : 'bg-slate-700 text-slate-400 hover:bg-slate-600'
+                          }`}
+                        >
+                          {(member as ClubMember & { is_gym_member?: boolean }).is_gym_member ? '✓ Sí' : 'Habilitar'}
+                        </button>
                       </td>
 
                       {/* Acciones */}
