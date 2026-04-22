@@ -122,6 +122,7 @@ const adminGroups: NavGroup[] = [
     icon: <Dumbbell size={16} />,
     items: [
       { icon: <Dumbbell size={18} />, label: 'Gimnasio', href: '/admin/gimnasio', permission: 'gym.classes' },
+      { icon: <Users size={18} />, label: 'Socios del gym', href: '/admin/gimnasio/socios', permission: 'gym.classes' },
       { icon: <ClipboardList size={18} />, label: 'Planes de entrenamiento', href: '/admin/entrenamiento', permission: 'training.manage' },
       { icon: <Droplets size={18} />, label: 'Recuperación', href: '/admin/recuperacion', permission: 'recovery.manage' },
     ],

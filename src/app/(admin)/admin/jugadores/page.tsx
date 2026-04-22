@@ -80,7 +80,8 @@ export default function GestionJugadoresPage() {
   const [filterPosition, setFilterPosition] = useState('all')
   const [hideEmpty, setHideEmpty] = useState(true)   // Ocultar sin nombre/email
   const [page, setPage] = useState(1)
-  const PAGE_SIZE = 15
+  const [pageSize, setPageSize] = useState(15)
+  const PAGE_SIZE = pageSize
 
   // ── Modal edición ──
   const [editTarget, setEditTarget] = useState<MemberRow | null>(null)
@@ -227,8 +228,8 @@ export default function GestionJugadoresPage() {
   const currentPage = Math.min(page, totalPages)
   const paged = filtered.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
 
-  // Reset de página cuando cambian los filtros
-  useEffect(() => { setPage(1) }, [search, filterStatus, filterCategory, filterPosition])
+  // Reset de página cuando cambian los filtros o page size
+  useEffect(() => { setPage(1) }, [search, filterStatus, filterCategory, filterPosition, pageSize, hideEmpty])
 
   // ─────────────────────────────────────────────────────────────
   // Abrir modal de edición
@@ -516,6 +517,20 @@ export default function GestionJugadoresPage() {
           />
           Ocultar sin datos
         </label>
+
+        <select
+          value={pageSize}
+          onChange={e => setPageSize(parseInt(e.target.value))}
+          className="rounded-lg border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-white"
+          title="Filas por página"
+        >
+          <option value={15}>15 por página</option>
+          <option value={50}>50 por página</option>
+          <option value={100}>100 por página</option>
+          <option value={500}>500 por página</option>
+          <option value={1000}>1.000 por página</option>
+          <option value={99999}>Todos</option>
+        </select>
       </div>
 
       {/* Tabla */}
