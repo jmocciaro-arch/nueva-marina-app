@@ -98,11 +98,12 @@ export default function GestionJugadoresPage() {
     try {
       const supabase = createClient()
 
-      // 1) Traer miembros del club (sin joins para evitar errores de RLS o tablas faltantes)
+      // 1) Traer miembros del club (solo jugadores — admins/staff van en /admin/usuarios)
       const { data: membersData, error: membersError } = await supabase
         .from('nm_club_members')
         .select('*')
         .eq('club_id', CLUB_ID)
+        .eq('role', 'player')
         .order('joined_at', { ascending: false })
 
       if (membersError) {
@@ -166,12 +167,8 @@ export default function GestionJugadoresPage() {
   // KPIs derivados
   // ─────────────────────────────────────────────────────────────
   const totalMembers = members.length
-  const activePlayers = members.filter(
-    m => m.is_active && m.role === 'player'
-  ).length
-  const staffCount = members.filter(
-    m => m.role === 'admin' || m.role === 'staff' || m.role === 'owner' || m.role === 'coach'
-  ).length
+  const activePlayers = members.filter(m => m.is_active).length
+  const inactivePlayers = members.filter(m => !m.is_active).length
 
   // ─────────────────────────────────────────────────────────────
   // Filtrado por búsqueda
@@ -365,23 +362,23 @@ export default function GestionJugadoresPage() {
       {/* KPIs */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         <KpiCard
-          title="Total socios"
+          title="Total jugadores"
           value={totalMembers}
           subtitle="registrados en el club"
           icon={<Users size={20} />}
           color="#06b6d4"
         />
         <KpiCard
-          title="Jugadores activos"
+          title="Activos"
           value={activePlayers}
           subtitle="con membresía vigente"
           icon={<UserCheck size={20} />}
           color="#22c55e"
         />
         <KpiCard
-          title="Admins / Staff"
-          value={staffCount}
-          subtitle="con permisos elevados"
+          title="Inactivos"
+          value={inactivePlayers}
+          subtitle="sin membresía"
           icon={<ShieldCheck size={20} />}
           color="#f59e0b"
         />
@@ -534,7 +531,7 @@ export default function GestionJugadoresPage() {
         {/* Footer con conteo */}
         {!loading && filtered.length > 0 && (
           <div className="px-4 py-3 border-t border-slate-700/40 text-xs text-slate-500">
-            Mostrando {filtered.length} de {totalMembers} socios
+            Mostrando {filtered.length} de {totalMembers} jugadores · Admins y staff se gestionan en <a href="/admin/usuarios" className="text-cyan-400 hover:underline">Usuarios</a>
           </div>
         )}
       </div>
