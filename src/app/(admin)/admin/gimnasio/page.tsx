@@ -334,7 +334,6 @@ export default function GestionGimnasioPage() {
       supabase
         .from('nm_users')
         .select('id, full_name')
-        .eq('club_id', CLUB_ID)
         .order('full_name', { ascending: true }),
       supabase
         .from('nm_gym_access_logs')
