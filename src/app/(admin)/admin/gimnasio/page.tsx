@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
+import Link from 'next/link'
 import {
   Dumbbell,
   CalendarDays,
@@ -268,7 +269,7 @@ export default function GestionGimnasioPage() {
   const [sessionRuleLoading, setSessionRuleLoading] = useState(false)
 
   // Tabs
-  const [activeTab, setActiveTab] = useState<'membresias' | 'clases' | 'sesiones' | 'personal'>('membresias')
+  const [activeTab, setActiveTab] = useState<'socios' | 'membresias' | 'clases' | 'sesiones' | 'personal'>('socios')
 
   // Datos
   const [memberships, setMemberships] = useState<Membership[]>([])
@@ -813,7 +814,7 @@ export default function GestionGimnasioPage() {
 
       {/* Tabs */}
       <div className="flex gap-1 border-b border-slate-700 overflow-x-auto">
-        {(['membresias', 'clases', 'sesiones', 'personal'] as const).map(tab => (
+        {(['socios', 'membresias', 'clases', 'sesiones', 'personal'] as const).map(tab => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
@@ -824,7 +825,8 @@ export default function GestionGimnasioPage() {
                 : 'border-transparent text-slate-400 hover:text-slate-200',
             ].join(' ')}
           >
-            {tab === 'membresias' ? 'Membresías'
+            {tab === 'socios' ? 'Socios'
+              : tab === 'membresias' ? 'Membresías'
               : tab === 'clases' ? 'Clases'
               : tab === 'sesiones' ? 'Sesiones'
               : 'Control de Personal'}
@@ -841,6 +843,9 @@ export default function GestionGimnasioPage() {
         </div>
       ) : (
         <>
+          {activeTab === 'socios' && (
+            <SociosTab memberships={memberships} users={users} />
+          )}
           {activeTab === 'membresias' && (
             <MembershipsTab
               memberships={memberships}
@@ -1847,5 +1852,131 @@ function ToggleSwitch({
       </div>
       <span className="text-sm text-slate-300">{label}</span>
     </label>
+  )
+}
+
+// ─── Tab: Socios (listado con link a ficha completa) ─────────────────────────
+function SociosTab({
+  memberships,
+  users,
+}: {
+  memberships: Membership[]
+  users: GymUser[]
+}) {
+  const [search, setSearch] = useState('')
+  const [filterStatus, setFilterStatus] = useState<'all' | 'active' | 'expired'>('all')
+
+  const sociosMap = new Map<string, { user: GymUser | undefined; memberships: Membership[] }>()
+  for (const m of memberships) {
+    const existing = sociosMap.get(m.user_id)
+    if (existing) {
+      existing.memberships.push(m)
+    } else {
+      const user = users.find(u => u.id === m.user_id)
+      sociosMap.set(m.user_id, { user, memberships: [m] })
+    }
+  }
+  const socios = Array.from(sociosMap.values())
+
+  const today = new Date().toISOString().slice(0, 10)
+  const filtered = socios.filter(s => {
+    const hasActive = s.memberships.some(m => m.status === 'active' && (!m.end_date || m.end_date >= today))
+    if (filterStatus === 'active' && !hasActive) return false
+    if (filterStatus === 'expired' && hasActive) return false
+    if (search.trim()) {
+      const q = search.toLowerCase()
+      const name = s.user?.full_name ?? ''
+      if (!name.toLowerCase().includes(q)) return false
+    }
+    return true
+  })
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-col md:flex-row gap-3">
+        <input
+          type="text"
+          placeholder="Buscar por nombre…"
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          className="flex-1 rounded-lg border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-white placeholder-slate-500"
+        />
+        <select
+          value={filterStatus}
+          onChange={e => setFilterStatus(e.target.value as 'all' | 'active' | 'expired')}
+          className="rounded-lg border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-white md:w-48"
+        >
+          <option value="all">Todos</option>
+          <option value="active">Abono activo</option>
+          <option value="expired">Sin abono activo</option>
+        </select>
+      </div>
+
+      <div className="rounded-xl border border-slate-700/50 bg-slate-800/50 overflow-hidden">
+        {filtered.length === 0 ? (
+          <div className="p-12 text-center text-slate-500 text-sm">
+            {search ? 'Sin resultados' : 'Todavía no hay socios del gym. Importá desde Virtuagym.'}
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-slate-900/60">
+                <tr className="text-left text-slate-400 text-xs uppercase tracking-wider">
+                  <th className="px-4 py-3">Socio</th>
+                  <th className="px-4 py-3">Abono actual</th>
+                  <th className="px-4 py-3">Desde</th>
+                  <th className="px-4 py-3">Hasta</th>
+                  <th className="px-4 py-3">Estado</th>
+                  <th className="px-4 py-3 text-right"></th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-800">
+                {filtered.map(s => {
+                  const current = s.memberships.find(m => m.status === 'active' && (!m.end_date || m.end_date >= today))
+                    ?? s.memberships[0]
+                  const isActive = current.status === 'active' && (!current.end_date || current.end_date >= today)
+                  return (
+                    <tr key={s.user?.id ?? current.user_id} className="hover:bg-slate-700/30">
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-2">
+                          <div className="h-7 w-7 rounded-full bg-slate-700 flex items-center justify-center text-xs font-bold text-cyan-400">
+                            {(s.user?.full_name ?? '?').charAt(0).toUpperCase()}
+                          </div>
+                          <span className="font-medium text-white">{s.user?.full_name ?? '—'}</span>
+                          {s.memberships.length > 1 && (
+                            <Badge variant="default">{s.memberships.length} abonos</Badge>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 text-slate-300">{current.plan}</td>
+                      <td className="px-4 py-3 text-slate-400">{formatDate(current.start_date)}</td>
+                      <td className="px-4 py-3 text-slate-400">{current.end_date ? formatDate(current.end_date) : '—'}</td>
+                      <td className="px-4 py-3">
+                        <Badge variant={isActive ? 'success' : 'danger'}>
+                          {isActive ? 'Activo' : 'Vencido'}
+                        </Badge>
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <Link
+                          href={`/admin/gimnasio/socio/${current.user_id}`}
+                          className="text-cyan-400 hover:text-cyan-300 text-xs font-medium"
+                        >
+                          Ver ficha →
+                        </Link>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+        {filtered.length > 0 && (
+          <div className="px-4 py-3 border-t border-slate-700/40 text-xs text-slate-500">
+            {filtered.length} socio(s) · Click en &quot;Ver ficha&quot; para abrir ficha completa con físico, objetivos, accesos, facturación y notas.
+          </div>
+        )}
+      </div>
+    </div>
   )
 }
