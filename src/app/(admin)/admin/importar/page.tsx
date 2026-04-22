@@ -35,6 +35,31 @@ interface ImportRow {
   [key: string]: string | undefined
 }
 
+interface InvoiceRow {
+  invoice_number: string
+  invoice_date: string | null
+  payment_method: string | null
+  virtuagym_member_id: string | null
+  member_unique_id: string | null
+  dni: string | null
+  first_name: string | null
+  last_name: string | null
+  email: string | null
+  phone: string | null
+  product_name: string | null
+  period_start: string | null
+  period_end: string | null
+  subtotal: number
+  tax: number
+  total: number
+  unpaid: number
+  paid_at: string | null
+  sold_by: string | null
+  category: string | null
+}
+
+type ImportType = 'clients' | 'invoices'
+
 interface ImportResult {
   email: string
   status: 'created' | 'updated' | 'skipped' | 'error'
@@ -73,6 +98,63 @@ function normalizeHeader(h: string): string {
     'check_in': 'last_check_in', 'last_check_in': 'last_check_in',
   }
   return mapping[normalized] || normalized
+}
+
+/** Virtuagym usa "DD-MM-YYYY" o "DD-MM-YYYY HH:MM:SS". Devuelve YYYY-MM-DD o null. */
+function toIsoDate(input: string | null | undefined): string | null {
+  if (!input) return null
+  const s = String(input).trim()
+  if (s === '' || s === '-') return null
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10)
+  const m = s.match(/^(\d{2})-(\d{2})-(\d{4})/)
+  if (m) return `${m[3]}-${m[2]}-${m[1]}`
+  return null
+}
+
+function parseInvoicesExcel(buffer: ArrayBuffer): InvoiceRow[] {
+  const wb = XLSX.read(buffer, { type: 'array' })
+  const sheet = wb.Sheets[wb.SheetNames[0]]
+  const raw = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: '' })
+  const num = (v: unknown): number => {
+    if (v === null || v === undefined || v === '') return 0
+    const n = typeof v === 'number' ? v : parseFloat(String(v).replace(',', '.'))
+    return isFinite(n) ? n : 0
+  }
+  const str = (v: unknown): string | null => {
+    if (v === null || v === undefined) return null
+    const s = String(v).trim()
+    if (s === '' || s === '-') return null
+    return s
+  }
+  return raw
+    .filter(r => r['Factura'])
+    .map(r => {
+      const tax4 = num(r['4.00% Impuesto de venta'])
+      const tax10 = num(r['10.00% Impuesto de venta'])
+      const tax21 = num(r['21.00% Impuesto de venta'])
+      return {
+        invoice_number: String(r['Factura'] ?? ''),
+        invoice_date: toIsoDate(str(r['Fecha de factura'])),
+        payment_method: str(r['Método de pago']),
+        virtuagym_member_id: str(r['Núm. de miembro del club']),
+        member_unique_id: str(r['Núm. de miembro único']),
+        dni: str(r['Dni']) || str(r['DNI']) || null,
+        first_name: str(r['Nombre']),
+        last_name: str(r['Apellidos']),
+        email: str(r['correo electrónico']),
+        phone: str(r['Móvil']) || str(r['Teléfono']),
+        product_name: str(r['Nombre del producto']),
+        period_start: toIsoDate(str(r['Periodo de inicio'])),
+        period_end: toIsoDate(str(r['Periodo de finalización'])),
+        subtotal: num(r['Total, excl. impuesto']),
+        tax: tax4 + tax10 + tax21,
+        total: num(r['Total, incl. impuesto']),
+        unpaid: num(r['No pagado']),
+        paid_at: toIsoDate(str(r['Pagado el'])),
+        sold_by: str(r['Vendido por']),
+        category: str(r['Categoría de ingreso']),
+      }
+    })
 }
 
 function parseExcel(buffer: ArrayBuffer): ImportRow[] {
@@ -149,62 +231,87 @@ function parseCSV(text: string): ImportRow[] {
 
 export default function ImportarPage() {
   const { toast } = useToast()
+  const [importType, setImportType] = useState<ImportType>('clients')
   const [step, setStep] = useState<'upload' | 'preview' | 'importing' | 'done'>('upload')
   const [rows, setRows] = useState<ImportRow[]>([])
+  const [invoiceRows, setInvoiceRows] = useState<InvoiceRow[]>([])
   const [fileName, setFileName] = useState('')
+  const [filesProcessed, setFilesProcessed] = useState<string[]>([])
   const [importing, setImporting] = useState(false)
   const [progress, setProgress] = useState(0)
   const [results, setResults] = useState<ImportResult[]>([])
   const [summary, setSummary] = useState({ total: 0, created: 0, updated: 0, skipped: 0, errors: 0 })
 
   const handleFileUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file) return
+    const files = Array.from(e.target.files ?? [])
+    if (files.length === 0) return
 
-    setFileName(file.name)
-    const reader = new FileReader()
-    const isExcel = /\.(xlsx|xls)$/i.test(file.name)
+    const processed: string[] = []
+    let totalNewClients: ImportRow[] = []
+    let totalNewInvoices: InvoiceRow[] = []
+    let filesRead = 0
 
-    reader.onload = (ev) => {
-      try {
-        let parsed: ImportRow[] = []
-        if (isExcel) {
-          const buffer = ev.target?.result as ArrayBuffer
-          parsed = parseExcel(buffer)
-        } else {
-          const text = ev.target?.result as string
-          parsed = parseCSV(text)
+    files.forEach(file => {
+      const reader = new FileReader()
+      const isExcel = /\.(xlsx|xls)$/i.test(file.name)
+
+      reader.onload = (ev) => {
+        try {
+          if (importType === 'clients') {
+            const parsed = isExcel
+              ? parseExcel(ev.target?.result as ArrayBuffer)
+              : parseCSV(ev.target?.result as string)
+            totalNewClients = [...totalNewClients, ...parsed]
+          } else {
+            // Invoices — solo Excel
+            if (!isExcel) throw new Error('Facturas requieren archivo Excel (.xlsx)')
+            const parsed = parseInvoicesExcel(ev.target?.result as ArrayBuffer)
+            totalNewInvoices = [...totalNewInvoices, ...parsed]
+          }
+          processed.push(file.name)
+        } catch (err) {
+          toast('error', `${file.name}: ${(err as Error).message}`)
+        } finally {
+          filesRead++
+          if (filesRead === files.length) {
+            // Todos los archivos procesados
+            if (importType === 'clients') {
+              if (totalNewClients.length === 0) { toast('error', 'No se pudieron leer datos'); return }
+              setRows(totalNewClients)
+            } else {
+              if (totalNewInvoices.length === 0) { toast('error', 'No se pudieron leer facturas'); return }
+              setInvoiceRows(totalNewInvoices)
+            }
+            setFileName(processed.length === 1 ? processed[0] : `${processed.length} archivos`)
+            setFilesProcessed(processed)
+            setStep('preview')
+            const total = importType === 'clients' ? totalNewClients.length : totalNewInvoices.length
+            toast('success', `${total} registros cargados de ${processed.length} archivo(s)`)
+          }
         }
-        if (parsed.length === 0) {
-          toast('error', 'No se pudieron leer datos del archivo')
-          return
-        }
-        setRows(parsed)
-        setStep('preview')
-        toast('success', `${parsed.length} registros encontrados`)
-      } catch (err) {
-        toast('error', `Error leyendo el archivo: ${(err as Error).message}`)
       }
-    }
 
-    if (isExcel) reader.readAsArrayBuffer(file)
-    else reader.readAsText(file, 'utf-8')
-  }, [toast])
+      if (isExcel) reader.readAsArrayBuffer(file)
+      else reader.readAsText(file, 'utf-8')
+    })
+  }, [toast, importType])
 
   const handleImport = useCallback(async () => {
     setImporting(true)
     setStep('importing')
     setProgress(0)
 
-    // Process in batches of 25
-    const batchSize = 25
+    const items = importType === 'clients' ? rows : invoiceRows
+    const endpoint = importType === 'clients' ? '/api/import/virtuagym' : '/api/import/invoices'
+    const batchSize = importType === 'clients' ? 25 : 50
+
     const allResults: ImportResult[] = []
     let totalCreated = 0, totalUpdated = 0, totalSkipped = 0, totalErrors = 0
 
-    for (let i = 0; i < rows.length; i += batchSize) {
-      const batch = rows.slice(i, i + batchSize)
+    for (let i = 0; i < items.length; i += batchSize) {
+      const batch = items.slice(i, i + batchSize)
       try {
-        const res = await fetch('/api/import/virtuagym', {
+        const res = await fetch(endpoint, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ rows: batch }),
@@ -218,25 +325,56 @@ export default function ImportarPage() {
           totalErrors += data.errors || 0
         }
       } catch {
-        batch.forEach(r => allResults.push({ email: r.email || '?', status: 'error', message: 'Error de red' }))
+        batch.forEach(r => {
+          const hasEmail = (r as ImportRow).email
+          const hasInvoice = (r as InvoiceRow).invoice_number
+          const key: string = hasEmail || hasInvoice || '?'
+          allResults.push({ email: key, status: 'error', message: 'Error de red' })
+        })
         totalErrors += batch.length
       }
-      setProgress(Math.min(100, Math.round(((i + batchSize) / rows.length) * 100)))
+      setProgress(Math.min(100, Math.round(((i + batchSize) / items.length) * 100)))
     }
 
     setResults(allResults)
-    setSummary({ total: rows.length, created: totalCreated, updated: totalUpdated, skipped: totalSkipped, errors: totalErrors })
+    setSummary({ total: items.length, created: totalCreated, updated: totalUpdated, skipped: totalSkipped, errors: totalErrors })
     setStep('done')
     setImporting(false)
     toast('success', `Importación completada: ${totalCreated} creados, ${totalUpdated} actualizados`)
-  }, [rows, toast])
+  }, [rows, invoiceRows, importType, toast])
 
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-white">Importar desde Virtuagym</h1>
-        <p className="text-sm text-slate-400 mt-1">Importa socios, membresías y datos desde un CSV exportado de Virtuagym</p>
+        <p className="text-sm text-slate-400 mt-1">Importa socios, membresías y facturación desde exports de Virtuagym</p>
       </div>
+
+      {/* Selector tipo de importación (solo en step upload) */}
+      {step === 'upload' && (
+        <div className="flex gap-2">
+          <button
+            onClick={() => setImportType('clients')}
+            className={`flex-1 px-4 py-3 rounded-lg border text-sm font-medium transition-colors ${
+              importType === 'clients'
+                ? 'border-cyan-500 bg-cyan-500/10 text-cyan-300'
+                : 'border-slate-700 bg-slate-800/50 text-slate-400 hover:border-slate-600'
+            }`}
+          >
+            👥 Clientes / Socios
+          </button>
+          <button
+            onClick={() => setImportType('invoices')}
+            className={`flex-1 px-4 py-3 rounded-lg border text-sm font-medium transition-colors ${
+              importType === 'invoices'
+                ? 'border-cyan-500 bg-cyan-500/10 text-cyan-300'
+                : 'border-slate-700 bg-slate-800/50 text-slate-400 hover:border-slate-600'
+            }`}
+          >
+            💶 Facturas / Pagos
+          </button>
+        </div>
+      )}
 
       {/* Steps indicator */}
       <div className="flex items-center gap-2 text-sm">
@@ -262,27 +400,39 @@ export default function ImportarPage() {
               <Upload size={40} className="text-cyan-500" />
             </div>
             <div className="text-center">
-              <h3 className="text-lg font-semibold text-white">Subí el CSV de Virtuagym</h3>
+              <h3 className="text-lg font-semibold text-white">
+                {importType === 'clients' ? 'Subí el CSV o Excel de clientes' : 'Subí los Excel de facturas'}
+              </h3>
               <p className="text-sm text-slate-400 mt-1">
-                Andá a Virtuagym {'>'} Configuración {'>'} Miembros {'>'} Exportar CSV
+                {importType === 'clients'
+                  ? 'Virtuagym → Configuración del sistema → Exportar miembros'
+                  : 'Virtuagym → Finanzas → Facturas → Exportar (podés subir varios archivos a la vez)'}
               </p>
             </div>
             <label className="cursor-pointer">
-              <input type="file" accept=".csv,.txt,.tsv,.xlsx,.xls" onChange={handleFileUpload} className="hidden" />
+              <input
+                type="file"
+                accept={importType === 'clients' ? '.csv,.txt,.tsv,.xlsx,.xls' : '.xlsx,.xls'}
+                multiple={importType === 'invoices'}
+                onChange={handleFileUpload}
+                className="hidden"
+              />
               <div className="flex items-center gap-2 px-6 py-3 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white font-medium transition-colors">
                 <FileSpreadsheet size={18} />
-                Seleccionar archivo
+                {importType === 'clients' ? 'Seleccionar archivo' : 'Seleccionar archivos'}
               </div>
             </label>
             <p className="text-xs text-slate-600 mt-2">
-              Formatos soportados: Excel (.xlsx, .xls), CSV, TSV
+              {importType === 'clients'
+                ? 'Formatos soportados: Excel (.xlsx, .xls), CSV, TSV'
+                : 'Seleccioná todos los Excel a la vez (Cmd+click). Se van a juntar.'}
             </p>
           </div>
         </Card>
       )}
 
       {/* Step 2: Preview */}
-      {step === 'preview' && (
+      {step === 'preview' && importType === 'clients' && (
         <>
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
             <KpiCard title="Total registros" value={rows.length} icon={<Users size={20} />} />
@@ -353,6 +503,105 @@ export default function ImportarPage() {
             {rows.length > 20 && (
               <p className="text-xs text-slate-500 mt-3 text-center">... y {rows.length - 20} registros más</p>
             )}
+          </Card>
+        </>
+      )}
+
+      {/* Step 2: Preview de FACTURAS */}
+      {step === 'preview' && importType === 'invoices' && (
+        <>
+          <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
+            <KpiCard title="Total facturas" value={invoiceRows.length} icon={<FileSpreadsheet size={20} />} />
+            <KpiCard
+              title="Total facturado"
+              value={`€${invoiceRows.reduce((s, r) => s + r.total, 0).toFixed(2)}`}
+              icon={<CheckCircle size={20} />}
+              color="#10b981"
+            />
+            <KpiCard
+              title="Pagadas"
+              value={invoiceRows.filter(r => r.unpaid === 0).length}
+              icon={<CheckCircle size={20} />}
+              color="#10b981"
+            />
+            <KpiCard
+              title="Impagas"
+              value={invoiceRows.filter(r => r.unpaid > 0).length}
+              icon={<AlertCircle size={20} />}
+              color="#ef4444"
+            />
+            <KpiCard
+              title="Productos únicos"
+              value={new Set(invoiceRows.map(r => r.product_name).filter(Boolean)).size}
+              icon={<FileSpreadsheet size={20} />}
+              color="#6366f1"
+            />
+          </div>
+
+          <Card>
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h3 className="text-lg font-semibold text-white">Preview: {fileName}</h3>
+                <p className="text-xs text-slate-400">
+                  {filesProcessed.length > 1
+                    ? `${filesProcessed.length} archivos · ${invoiceRows.length} facturas · mostrando los primeros 20`
+                    : `Mostrando los primeros 20 de ${invoiceRows.length}`}
+                </p>
+              </div>
+              <div className="flex items-center gap-3">
+                <Button variant="ghost" onClick={() => { setStep('upload'); setInvoiceRows([]); setFilesProcessed([]) }}>
+                  Cancelar
+                </Button>
+                <Button onClick={handleImport} loading={importing}>
+                  <Upload size={16} className="mr-1" />
+                  Importar {invoiceRows.length} facturas
+                </Button>
+              </div>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="border-b border-slate-700">
+                    <th className="text-left font-medium text-slate-400 pb-3 pl-2">#</th>
+                    <th className="text-left font-medium text-slate-400 pb-3">Factura</th>
+                    <th className="text-left font-medium text-slate-400 pb-3">Fecha</th>
+                    <th className="text-left font-medium text-slate-400 pb-3">Cliente</th>
+                    <th className="text-left font-medium text-slate-400 pb-3">DNI</th>
+                    <th className="text-left font-medium text-slate-400 pb-3">Producto</th>
+                    <th className="text-right font-medium text-slate-400 pb-3">Total</th>
+                    <th className="text-left font-medium text-slate-400 pb-3 pl-3">Pago</th>
+                    <th className="text-left font-medium text-slate-400 pb-3">Estado</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {invoiceRows.slice(0, 20).map((r, i) => (
+                    <tr key={i} className="border-b border-slate-800 hover:bg-slate-800/30">
+                      <td className="py-2 pl-2 text-slate-500">{i + 1}</td>
+                      <td className="py-2 text-slate-300 font-mono">{r.invoice_number}</td>
+                      <td className="py-2 text-slate-400 whitespace-nowrap">{r.invoice_date || '-'}</td>
+                      <td className="py-2 text-white whitespace-nowrap">{[r.first_name, r.last_name].filter(Boolean).join(' ') || '-'}</td>
+                      <td className="py-2 text-slate-400 font-mono">{r.dni || '-'}</td>
+                      <td className="py-2 text-slate-300">{r.product_name || '-'}</td>
+                      <td className="py-2 text-right font-mono text-cyan-400">€{r.total.toFixed(2)}</td>
+                      <td className="py-2 text-slate-400 pl-3 whitespace-nowrap">{r.payment_method || '-'}</td>
+                      <td className="py-2">
+                        <Badge variant={r.unpaid > 0 ? 'danger' : 'success'}>
+                          {r.unpaid > 0 ? 'Impaga' : 'Pagada'}
+                        </Badge>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {invoiceRows.length > 20 && (
+              <p className="text-xs text-slate-500 mt-3 text-center">... y {invoiceRows.length - 20} facturas más</p>
+            )}
+            <div className="mt-3 text-[11px] text-slate-500">
+              💡 Al importar se van a: (1) guardar las facturas, (2) crear/actualizar productos únicos,
+              (3) crear/actualizar planes de abonos según <em>Categoría de ingreso</em> y (4) vincular al cliente por DNI o ID Virtuagym.
+            </div>
           </Card>
         </>
       )}
