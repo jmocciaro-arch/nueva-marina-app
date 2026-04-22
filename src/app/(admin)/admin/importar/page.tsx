@@ -81,14 +81,32 @@ function parseExcel(buffer: ArrayBuffer): ImportRow[] {
   const raw = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: '' })
   return raw.map(rawRow => {
     const row: ImportRow = {}
+    // Detección de membresía desde columnas "Acceso", "Boxeo", "Clases dirigidas"
+    const memberships: string[] = []
+
     for (const [key, value] of Object.entries(rawRow)) {
       const normalized = normalizeHeader(key)
-      // Priorizar external_id > custom_export_field > club_member_id (el primer no-vacío gana)
-      if (normalized === 'document_number' && row.document_number) continue
-      if (value !== null && value !== undefined && String(value).trim() !== '') {
-        row[normalized] = String(value).trim()
+      const strVal = value === null || value === undefined ? '' : String(value).trim()
+
+      // Columnas especiales tipo abono: Acceso, Boxeo, Clases dirigidas
+      const lowerKey = key.toLowerCase()
+      if (['acceso', 'boxeo', 'clases_dirigidas', 'clases dirigidas', 'padel', 'spa'].includes(lowerKey)) {
+        if (strVal && strVal !== '0' && strVal !== '-' && strVal.toLowerCase() !== 'no') {
+          // Si vale "unlimited" o es un número > 0, cuenta como abono activo
+          memberships.push(`${key}: ${strVal}`)
+        }
+        continue
       }
+
+      // Priorizar external_id > custom_export_field > club_member_id
+      if (normalized === 'document_number' && row.document_number) continue
+      if (strVal !== '') row[normalized] = strVal
     }
+
+    if (memberships.length > 0 && !row.membership_name) {
+      row.membership_name = memberships.join(', ')
+    }
+
     return row
   }).filter(r => r.email || r.first_name)
 }
@@ -290,34 +308,47 @@ export default function ImportarPage() {
               </div>
             </div>
             <div className="overflow-x-auto">
-              <table className="w-full">
+              <table className="w-full text-xs">
                 <thead>
                   <tr className="border-b border-slate-700">
-                    <th className="text-left text-xs font-medium text-slate-400 pb-3 pl-2">#</th>
-                    <th className="text-left text-xs font-medium text-slate-400 pb-3">Nombre</th>
-                    <th className="text-left text-xs font-medium text-slate-400 pb-3">Email</th>
-                    <th className="text-left text-xs font-medium text-slate-400 pb-3">Teléfono</th>
-                    <th className="text-left text-xs font-medium text-slate-400 pb-3">Membresía</th>
-                    <th className="text-left text-xs font-medium text-slate-400 pb-3">Estado</th>
+                    <th className="text-left font-medium text-slate-400 pb-3 pl-2">#</th>
+                    <th className="text-left font-medium text-slate-400 pb-3">Nombre</th>
+                    <th className="text-left font-medium text-slate-400 pb-3">Email</th>
+                    <th className="text-left font-medium text-slate-400 pb-3">Teléfono</th>
+                    <th className="text-left font-medium text-slate-400 pb-3">DNI/NIE</th>
+                    <th className="text-left font-medium text-slate-400 pb-3">Nac.</th>
+                    <th className="text-left font-medium text-slate-400 pb-3">Ciudad</th>
+                    <th className="text-left font-medium text-slate-400 pb-3">Tarjeta</th>
+                    <th className="text-left font-medium text-slate-400 pb-3">Abonos</th>
                   </tr>
                 </thead>
                 <tbody>
                   {rows.slice(0, 20).map((row, i) => (
                     <tr key={i} className="border-b border-slate-800 hover:bg-slate-800/30">
-                      <td className="py-2.5 pl-2 text-xs text-slate-500">{i + 1}</td>
-                      <td className="py-2.5 text-sm text-white">{[row.first_name, row.last_name].filter(Boolean).join(' ') || '-'}</td>
-                      <td className="py-2.5 text-sm text-slate-300">{row.email || <span className="text-red-400">sin email</span>}</td>
-                      <td className="py-2.5 text-sm text-slate-400">{row.phone || '-'}</td>
-                      <td className="py-2.5 text-sm text-slate-400">{row.membership_name || '-'}</td>
-                      <td className="py-2.5">
-                        <Badge variant={row.status?.toLowerCase() === 'inactive' ? 'danger' : 'success'}>
-                          {row.status || 'Activo'}
-                        </Badge>
+                      <td className="py-2 pl-2 text-slate-500">{i + 1}</td>
+                      <td className="py-2 text-white whitespace-nowrap">{[row.first_name, row.last_name].filter(Boolean).join(' ') || '-'}</td>
+                      <td className="py-2 text-slate-300">{row.email || <span className="text-red-400">sin email</span>}</td>
+                      <td className="py-2 text-slate-400 whitespace-nowrap">{row.phone || '-'}</td>
+                      <td className="py-2 text-slate-400 font-mono">{row.document_number || '-'}</td>
+                      <td className="py-2 text-slate-400 whitespace-nowrap">{row.date_of_birth || '-'}</td>
+                      <td className="py-2 text-slate-400 whitespace-nowrap">{row.city || '-'}</td>
+                      <td className="py-2 text-slate-500 font-mono text-[10px]">
+                        {row.card_number && row.card_number !== '-' ? '●' : '-'}
+                      </td>
+                      <td className="py-2">
+                        {row.membership_name ? (
+                          <Badge variant="cyan">{row.membership_name.length > 30 ? row.membership_name.slice(0, 28) + '…' : row.membership_name}</Badge>
+                        ) : (
+                          <span className="text-slate-600">-</span>
+                        )}
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
+            </div>
+            <div className="mt-3 text-[11px] text-slate-500 flex flex-wrap gap-x-4 gap-y-1">
+              <span>💡 También se importa: <strong>género, dirección, CP, IBAN, tags, fecha de alta, último check-in</strong> en la ficha del usuario (no se muestran en el preview).</span>
             </div>
             {rows.length > 20 && (
               <p className="text-xs text-slate-500 mt-3 text-center">... y {rows.length - 20} registros más</p>
