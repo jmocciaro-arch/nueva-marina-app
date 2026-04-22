@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useCallback } from 'react'
+import * as XLSX from 'xlsx'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -23,6 +24,14 @@ interface ImportRow {
   membership_start?: string
   membership_end?: string
   status?: string
+  // Campos extra que Virtuagym exporta
+  document_number?: string  // DNI/NIE (de external_id o custom_export_field)
+  vat_number?: string       // NIF (de member_vat_number)
+  iban?: string             // de bank_account_number
+  card_number?: string      // de card_nr (tarjeta RFID)
+  tags?: string
+  registration_date?: string
+  last_check_in?: string
   [key: string]: string | undefined
 }
 
@@ -30,6 +39,58 @@ interface ImportResult {
   email: string
   status: 'created' | 'updated' | 'skipped' | 'error'
   message?: string
+}
+
+// Normaliza un header al nombre interno que espera el importador
+function normalizeHeader(h: string): string {
+  const normalized = h.toLowerCase()
+    .replace(/[áà]/g, 'a').replace(/[éè]/g, 'e').replace(/[íì]/g, 'i')
+    .replace(/[óò]/g, 'o').replace(/[úù]/g, 'u')
+    .replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '')
+  const mapping: Record<string, string> = {
+    'id': 'member_id', 'member_id': 'member_id', 'miembro_id': 'member_id',
+    'nombre': 'first_name', 'first_name': 'first_name', 'firstname': 'first_name', 'name': 'first_name',
+    'apellido': 'last_name', 'apellidos': 'last_name', 'last_name': 'last_name', 'lastname': 'last_name', 'surname': 'last_name',
+    'email': 'email', 'correo': 'email', 'e_mail': 'email', 'mail': 'email',
+    'telefono': 'phone', 'phone': 'phone', 'tel': 'phone', 'mobile': 'phone', 'movil': 'phone',
+    'fecha_nacimiento': 'date_of_birth', 'date_of_birth': 'date_of_birth', 'birthday': 'date_of_birth', 'birth_date': 'date_of_birth',
+    'genero': 'gender', 'gender': 'gender', 'sexo': 'gender',
+    'direccion': 'address', 'address': 'address', 'street': 'address',
+    'codigo_postal': 'postal_code', 'postal_code': 'postal_code', 'zip': 'postal_code', 'zip_code': 'postal_code', 'cp': 'postal_code',
+    'ciudad': 'city', 'city': 'city',
+    'membresia': 'membership_name', 'membership': 'membership_name', 'membership_name': 'membership_name', 'plan': 'membership_name', 'abono': 'membership_name',
+    'inicio_membresia': 'membership_start', 'membership_start': 'membership_start', 'start_date': 'membership_start', 'member_since': 'membership_start',
+    'fin_membresia': 'membership_end', 'membership_end': 'membership_end', 'end_date': 'membership_end', 'unsubscribe_date': 'membership_end',
+    'estado': 'status', 'status': 'status', 'active': 'status',
+    'external_id': 'document_number', 'dni': 'document_number', 'nie': 'document_number', 'document_number': 'document_number',
+    'club_member_id': 'document_number',
+    'custom_export_field': 'document_number',
+    'member_vat_number': 'vat_number', 'vat': 'vat_number', 'nif': 'vat_number',
+    'bank_account_number': 'iban', 'iban': 'iban',
+    'card_nr': 'card_number', 'card_number': 'card_number', 'tarjeta': 'card_number',
+    'tags': 'tags',
+    'registration_date': 'registration_date',
+    'check_in': 'last_check_in', 'last_check_in': 'last_check_in',
+  }
+  return mapping[normalized] || normalized
+}
+
+function parseExcel(buffer: ArrayBuffer): ImportRow[] {
+  const wb = XLSX.read(buffer, { type: 'array' })
+  const sheet = wb.Sheets[wb.SheetNames[0]]
+  const raw = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: '' })
+  return raw.map(rawRow => {
+    const row: ImportRow = {}
+    for (const [key, value] of Object.entries(rawRow)) {
+      const normalized = normalizeHeader(key)
+      // Priorizar external_id > custom_export_field > club_member_id (el primer no-vacío gana)
+      if (normalized === 'document_number' && row.document_number) continue
+      if (value !== null && value !== undefined && String(value).trim() !== '') {
+        row[normalized] = String(value).trim()
+      }
+    }
+    return row
+  }).filter(r => r.email || r.first_name)
 }
 
 function parseCSV(text: string): ImportRow[] {
@@ -56,38 +117,13 @@ function parseCSV(text: string): ImportRow[] {
     return result
   }
 
-  const headers = parseRow(lines[0]).map(h => {
-    // Normalize header names to our expected field names
-    const normalized = h.toLowerCase()
-      .replace(/[áà]/g, 'a').replace(/[éè]/g, 'e').replace(/[íì]/g, 'i')
-      .replace(/[óò]/g, 'o').replace(/[úù]/g, 'u')
-      .replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '')
-
-    // Map common Virtuagym field names (CSV real usa "firstname", "lastname", "zip_code", etc.)
-    const mapping: Record<string, string> = {
-      'id': 'member_id', 'member_id': 'member_id', 'miembro_id': 'member_id',
-      'nombre': 'first_name', 'first_name': 'first_name', 'firstname': 'first_name', 'name': 'first_name',
-      'apellido': 'last_name', 'apellidos': 'last_name', 'last_name': 'last_name', 'lastname': 'last_name', 'surname': 'last_name',
-      'email': 'email', 'correo': 'email', 'e_mail': 'email', 'mail': 'email',
-      'telefono': 'phone', 'phone': 'phone', 'tel': 'phone', 'mobile': 'phone', 'movil': 'phone',
-      'fecha_nacimiento': 'date_of_birth', 'date_of_birth': 'date_of_birth', 'birthday': 'date_of_birth', 'birth_date': 'date_of_birth',
-      'genero': 'gender', 'gender': 'gender', 'sexo': 'gender',
-      'direccion': 'address', 'address': 'address', 'street': 'address',
-      'codigo_postal': 'postal_code', 'postal_code': 'postal_code', 'zip': 'postal_code', 'zip_code': 'postal_code', 'cp': 'postal_code',
-      'ciudad': 'city', 'city': 'city',
-      'membresia': 'membership_name', 'membership': 'membership_name', 'membership_name': 'membership_name', 'plan': 'membership_name', 'abono': 'membership_name',
-      'inicio_membresia': 'membership_start', 'membership_start': 'membership_start', 'start_date': 'membership_start', 'member_since': 'membership_start',
-      'fin_membresia': 'membership_end', 'membership_end': 'membership_end', 'end_date': 'membership_end', 'unsubscribe_date': 'membership_end',
-      'estado': 'status', 'status': 'status', 'active': 'status',
-    }
-    return mapping[normalized] || normalized
-  })
+  const headers = parseRow(lines[0]).map(normalizeHeader)
 
   return lines.slice(1).map(line => {
     const values = parseRow(line)
     const row: ImportRow = {}
     headers.forEach((h, i) => {
-      if (values[i]) row[h] = values[i]
+      if (values[i] && !row[h]) row[h] = values[i]
     })
     return row
   }).filter(row => row.email || row.first_name)
@@ -109,18 +145,32 @@ export default function ImportarPage() {
 
     setFileName(file.name)
     const reader = new FileReader()
+    const isExcel = /\.(xlsx|xls)$/i.test(file.name)
+
     reader.onload = (ev) => {
-      const text = ev.target?.result as string
-      const parsed = parseCSV(text)
-      if (parsed.length === 0) {
-        toast('error', 'No se pudieron leer datos del archivo')
-        return
+      try {
+        let parsed: ImportRow[] = []
+        if (isExcel) {
+          const buffer = ev.target?.result as ArrayBuffer
+          parsed = parseExcel(buffer)
+        } else {
+          const text = ev.target?.result as string
+          parsed = parseCSV(text)
+        }
+        if (parsed.length === 0) {
+          toast('error', 'No se pudieron leer datos del archivo')
+          return
+        }
+        setRows(parsed)
+        setStep('preview')
+        toast('success', `${parsed.length} registros encontrados`)
+      } catch (err) {
+        toast('error', `Error leyendo el archivo: ${(err as Error).message}`)
       }
-      setRows(parsed)
-      setStep('preview')
-      toast('success', `${parsed.length} registros encontrados`)
     }
-    reader.readAsText(file, 'utf-8')
+
+    if (isExcel) reader.readAsArrayBuffer(file)
+    else reader.readAsText(file, 'utf-8')
   }, [toast])
 
   const handleImport = useCallback(async () => {
@@ -200,14 +250,14 @@ export default function ImportarPage() {
               </p>
             </div>
             <label className="cursor-pointer">
-              <input type="file" accept=".csv,.txt,.tsv" onChange={handleFileUpload} className="hidden" />
+              <input type="file" accept=".csv,.txt,.tsv,.xlsx,.xls" onChange={handleFileUpload} className="hidden" />
               <div className="flex items-center gap-2 px-6 py-3 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white font-medium transition-colors">
                 <FileSpreadsheet size={18} />
-                Seleccionar archivo CSV
+                Seleccionar archivo
               </div>
             </label>
             <p className="text-xs text-slate-600 mt-2">
-              Formatos: CSV, TSV (separado por comas o punto y coma)
+              Formatos soportados: Excel (.xlsx, .xls), CSV, TSV
             </p>
           </div>
         </Card>

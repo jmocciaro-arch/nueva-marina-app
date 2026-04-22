@@ -17,8 +17,37 @@ interface VirtuagymRow {
   membership_start?: string
   membership_end?: string
   status?: string
+  // Nuevos campos capturados del export Virtuagym
+  document_number?: string  // DNI/NIE
+  vat_number?: string       // NIF empresa
+  iban?: string
+  card_number?: string      // RFID card
+  tags?: string
+  registration_date?: string
+  last_check_in?: string
   // Flexible: accept any extra fields
   [key: string]: string | undefined
+}
+
+/** Convierte fecha "DD-MM-YYYY" o "DD-MM-YYYY HH:MM:SS" a ISO "YYYY-MM-DD". Null si inválida. */
+function toIsoDate(input: string | undefined): string | null {
+  if (!input || input.trim() === '' || input === '-') return null
+  // Ya está en formato ISO
+  if (/^\d{4}-\d{2}-\d{2}/.test(input)) return input.slice(0, 10)
+  // Formato Virtuagym: DD-MM-YYYY
+  const m = input.match(/^(\d{2})-(\d{2})-(\d{4})/)
+  if (m) return `${m[3]}-${m[2]}-${m[1]}`
+  return null
+}
+
+/** Detecta el tipo de documento por el patrón. */
+function detectDocumentType(doc: string | undefined): string | null {
+  if (!doc) return null
+  const clean = doc.trim().toUpperCase()
+  if (/^[XYZ]\d{7,8}[A-Z]$/.test(clean)) return 'NIE'
+  if (/^\d{8}[A-Z]$/.test(clean)) return 'DNI'
+  if (/^[A-Z]\d{8}$/.test(clean)) return 'NIF'
+  return clean.length > 4 ? 'OTRO' : null
 }
 
 export async function POST(request: Request) {
@@ -83,6 +112,21 @@ export async function POST(request: Request) {
 
       let userId: string
 
+      // Preparar datos comunes (para create y update)
+      const docNumber = row.document_number?.trim() || undefined
+      const docType = detectDocumentType(docNumber) || (row.vat_number ? 'NIF' : null)
+      const vatAsDoc = !docNumber && row.vat_number ? row.vat_number.trim() : undefined
+      const birth = toIsoDate(row.date_of_birth)
+      const memberSince = toIsoDate(row.membership_start)
+      const memberEnd = toIsoDate(row.membership_end)
+
+      // Notas: concatenamos datos útiles no mapeados (tags, registration_date, last_check_in)
+      const noteParts: string[] = []
+      if (row.tags && row.tags !== '-') noteParts.push(`Tags: ${row.tags}`)
+      if (row.registration_date) noteParts.push(`Alta VG: ${row.registration_date}`)
+      if (row.last_check_in && row.last_check_in !== '-') noteParts.push(`Último check-in: ${row.last_check_in}`)
+      const notes = noteParts.length > 0 ? noteParts.join(' · ') : undefined
+
       if (existingUser) {
         // Update existing user with VG data
         userId = existingUser.id
@@ -91,12 +135,18 @@ export async function POST(request: Request) {
           first_name: row.first_name || undefined,
           last_name: row.last_name || undefined,
           phone: row.phone || undefined,
-          date_of_birth: row.date_of_birth || undefined,
+          date_of_birth: birth || undefined,
+          birth_date: birth || undefined,
           gender: row.gender || undefined,
           address: row.address || undefined,
           postal_code: row.postal_code || undefined,
           city: row.city || undefined,
           virtuagym_id: row.member_id || undefined,
+          document_number: docNumber || vatAsDoc || undefined,
+          document_type: docType || undefined,
+          dni_nie: docNumber || undefined,
+          iban: row.iban || undefined,
+          notes: notes,
         }).eq('id', userId)
 
         results.push({ email, status: 'updated', message: 'Usuario existente actualizado' })
@@ -137,12 +187,18 @@ export async function POST(request: Request) {
           first_name: row.first_name || null,
           last_name: row.last_name || null,
           phone: row.phone || null,
-          date_of_birth: row.date_of_birth || null,
+          date_of_birth: birth,
+          birth_date: birth,
           gender: row.gender || null,
           address: row.address || null,
           postal_code: row.postal_code || null,
           city: row.city || null,
           virtuagym_id: row.member_id || null,
+          document_number: docNumber || vatAsDoc || null,
+          document_type: docType || null,
+          dni_nie: docNumber || null,
+          iban: row.iban || null,
+          notes: notes || null,
         })
 
         // Create club membership
@@ -159,10 +215,21 @@ export async function POST(request: Request) {
             club_id: 1,
             user_id: userId,
             plan: row.membership_name,
-            start_date: row.membership_start || new Date().toISOString().split('T')[0],
-            end_date: row.membership_end || null,
+            start_date: memberSince || new Date().toISOString().split('T')[0],
+            end_date: memberEnd,
             status: row.status?.toLowerCase() === 'inactive' ? 'cancelled' : 'active',
           })
+        }
+
+        // Tarjeta RFID → guardar en credenciales de acceso
+        if (row.card_number && row.card_number !== '-' && row.card_number.trim() !== '') {
+          await admin.from('nm_access_credentials').upsert({
+            club_id: 1,
+            user_id: userId,
+            type: 'rfid',
+            credential_data: row.card_number.trim(),
+            is_active: true,
+          }, { onConflict: 'club_id,user_id,type' })
         }
 
         // Record sync mapping
