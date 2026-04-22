@@ -97,7 +97,7 @@ function LoginForm() {
       if (data.user) {
         const now = new Date().toISOString()
         // Create nm_users profile con ficha completa + consents GDPR
-        await supabase.from('nm_users').upsert({
+        const { error: profileError } = await supabase.from('nm_users').upsert({
           id: data.user.id,
           email,
           full_name: fullName,
@@ -112,13 +112,37 @@ function LoginForm() {
           consent_data_public: consentDataPublic,
           consent_accepted_at: now,
         })
+        if (profileError) {
+          console.error('Error creando perfil:', profileError)
+          setError(`Cuenta creada pero falló el perfil: ${profileError.message}`)
+          setLoading(false)
+          return
+        }
+
         // Create club membership (club_id = 1 for Nueva Marina)
-        await supabase.from('nm_club_members').insert({
+        const { error: memberError } = await supabase.from('nm_club_members').insert({
           club_id: 1,
           user_id: data.user.id,
           role: 'player',
+          is_active: true,
         })
+        if (memberError) {
+          console.error('Error creando membresía:', memberError)
+          setError(`Cuenta creada pero falló la membresía: ${memberError.message}`)
+          setLoading(false)
+          return
+        }
       }
+
+      // Si no hay sesión activa, es porque Supabase tiene confirmación de email
+      if (!data.session) {
+        setError('')
+        setLoading(false)
+        alert(`¡Cuenta creada! 📧\n\nTe enviamos un email a ${email} para confirmar tu cuenta.\nRevisá tu bandeja de entrada (y spam).\n\nUna vez confirmado, volvé a iniciar sesión.`)
+        setIsRegister(false)
+        return
+      }
+
       router.push(redirect)
     } else {
       const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
