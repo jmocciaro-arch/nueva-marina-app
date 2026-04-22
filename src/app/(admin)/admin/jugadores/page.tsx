@@ -97,34 +97,62 @@ export default function GestionJugadoresPage() {
     setLoading(true)
     try {
       const supabase = createClient()
-      const { data, error } = await supabase
+
+      // 1) Traer miembros del club (sin joins para evitar errores de RLS o tablas faltantes)
+      const { data: membersData, error: membersError } = await supabase
         .from('nm_club_members')
-        .select(`
-          *,
-          user:nm_users(*),
-          player_profile:nm_player_profiles(*)
-        `)
+        .select('*')
         .eq('club_id', CLUB_ID)
         .order('joined_at', { ascending: false })
 
-      if (error) throw error
+      if (membersError) {
+        console.error('Error cargando members:', membersError)
+        toast('error', `No se pudieron cargar los socios: ${membersError.message}`)
+        return
+      }
 
-      // Supabase devuelve player_profile como array (relación 1-a-1 vía FK)
-      const rows: MemberRow[] = (data ?? []).map((row: unknown) => {
-        const r = row as Record<string, unknown>
-        return {
-          ...(r as unknown as ClubMember),
-          user: r.user as User,
-          player_profile: Array.isArray(r.player_profile)
-            ? ((r.player_profile[0] ?? null) as PlayerProfile | null)
-            : (r.player_profile as PlayerProfile | null),
+      if (!membersData || membersData.length === 0) {
+        setMembers([])
+        return
+      }
+
+      // 2) Traer usuarios de esos miembros
+      const userIds = [...new Set(membersData.map(m => m.user_id))]
+      const { data: usersData } = await supabase
+        .from('nm_users')
+        .select('*')
+        .in('id', userIds)
+
+      const userMap: Record<string, User> = {}
+      for (const u of usersData ?? []) userMap[u.id] = u as User
+
+      // 3) Traer player_profiles (opcional — si la tabla existe/tiene acceso)
+      const profileMap: Record<string, PlayerProfile> = {}
+      try {
+        const { data: profilesData } = await supabase
+          .from('nm_player_profiles')
+          .select('*')
+          .in('user_id', userIds)
+        for (const p of profilesData ?? []) {
+          const pp = p as PlayerProfile
+          profileMap[pp.user_id] = pp
         }
-      })
+      } catch {
+        // silenciar: si falla el profile, igual mostramos la lista
+      }
+
+      // 4) Combinar
+      const rows: MemberRow[] = membersData.map(m => ({
+        ...(m as ClubMember),
+        user: userMap[m.user_id] ?? ({ id: m.user_id, email: '(sin datos)' } as unknown as User),
+        player_profile: profileMap[m.user_id] ?? null,
+      }))
 
       setMembers(rows)
     } catch (err) {
       console.error(err)
-      toast('error', 'No se pudieron cargar los miembros')
+      const msg = err instanceof Error ? err.message : String(err)
+      toast('error', `No se pudieron cargar los socios: ${msg}`)
     } finally {
       setLoading(false)
     }
