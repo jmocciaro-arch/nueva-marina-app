@@ -12,6 +12,7 @@ import { Modal } from '@/components/ui/modal'
 import { KpiCard } from '@/components/ui/kpi-card'
 import { useToast } from '@/components/ui/toast'
 import { formatCurrency, formatDate, STATUS_LABELS } from '@/lib/utils'
+import { CompetitionCoverField } from '@/components/competition-cover-field'
 import type { Tournament } from '@/types'
 
 // ─── constantes ──────────────────────────────────────────────
@@ -79,6 +80,7 @@ interface TournamentForm {
   prize_description: string
   description: string
   status: string
+  cover_image_url: string
 }
 
 const EMPTY_FORM: TournamentForm = {
@@ -94,6 +96,7 @@ const EMPTY_FORM: TournamentForm = {
   prize_description: '',
   description: '',
   status: 'draft',
+  cover_image_url: '',
 }
 
 function tournamentToForm(t: Tournament): TournamentForm {
@@ -110,6 +113,7 @@ function tournamentToForm(t: Tournament): TournamentForm {
     prize_description: t.prize_description ?? '',
     description: t.description ?? '',
     status: t.status,
+    cover_image_url: (t as unknown as Record<string, unknown>).cover_image_url as string ?? '',
   }
 }
 
@@ -214,6 +218,7 @@ export default function GestionTorneosPage() {
         prize_description: newForm.prize_description || null,
         description: newForm.description || null,
         status: newForm.status,
+        cover_image_url: newForm.cover_image_url.trim() || null,
         sets_to_win: 2,
         games_per_set: 6,
         golden_point: true,
@@ -261,6 +266,7 @@ export default function GestionTorneosPage() {
         prize_description: editForm.prize_description || null,
         description: editForm.description || null,
         status: editForm.status,
+        cover_image_url: editForm.cover_image_url.trim() || null,
       }
 
       const { error } = await supabase
@@ -435,6 +441,11 @@ export default function GestionTorneosPage() {
             className="w-full rounded-lg border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-white placeholder-slate-500 transition-colors focus:outline-none focus:ring-2 focus:ring-cyan-500/40 focus:border-cyan-500 resize-none"
           />
         </div>
+
+        <CompetitionCoverField
+          value={form.cover_image_url}
+          onChange={val => onChange('cover_image_url', val)}
+        />
       </div>
     )
   }
@@ -518,12 +529,20 @@ export default function GestionTorneosPage() {
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
           {filtered.map(t => {
             const teamsCount = teamCounts[t.id] ?? 0
+            const cover = (t as unknown as Record<string, unknown>).cover_image_url as string | null | undefined
             return (
               <button
                 key={t.id}
                 onClick={() => openEdit(t)}
-                className="text-left rounded-xl border border-slate-700/50 bg-slate-800/50 p-5 hover:border-slate-600 hover:bg-slate-800 transition-all group"
+                className="text-left rounded-xl border border-slate-700/50 bg-slate-800/50 overflow-hidden hover:border-slate-600 hover:bg-slate-800 transition-all group"
               >
+                {cover && (
+                  <div className="relative h-28 w-full overflow-hidden border-b border-slate-700/50"
+                    style={{ backgroundImage: `url(${cover})`, backgroundSize: 'cover', backgroundPosition: 'center' }}>
+                    <div className="absolute inset-0 bg-gradient-to-t from-slate-800 via-slate-800/30 to-transparent" />
+                  </div>
+                )}
+                <div className="p-5">
                 {/* header card */}
                 <div className="flex items-start justify-between mb-3">
                   <div className="flex-1 min-w-0">
@@ -578,6 +597,7 @@ export default function GestionTorneosPage() {
                     </Link>
                     <Pencil size={13} className="text-slate-600 group-hover:text-cyan-400 transition-colors" />
                   </div>
+                </div>
                 </div>
               </button>
             )

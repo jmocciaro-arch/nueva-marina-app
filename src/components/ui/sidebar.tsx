@@ -9,6 +9,7 @@ import {
   QrCode, CreditCard, CircleDot, Activity, Heart, Store, Droplets,
   Tag, Layers, ShieldCheck, Upload, Sparkles
 } from 'lucide-react'
+import Image from 'next/image'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useState, useEffect } from 'react'
@@ -258,8 +259,8 @@ export function Sidebar({ isAdmin, user, onLogout }: SidebarProps) {
     <>
       {/* Logo */}
       <div className="flex items-center gap-3 px-4 py-4 border-b border-slate-700/50">
-        <div className="w-9 h-9 rounded-lg bg-cyan-600 flex items-center justify-center text-white font-bold text-sm shrink-0">
-          NM
+        <div className="w-9 h-9 rounded-lg bg-white flex items-center justify-center p-1 shrink-0">
+          <Image src="/icons/icon-512.png" alt="Nueva Marina" width={36} height={36} className="w-full h-full object-contain" priority />
         </div>
         {!collapsed && (
           <div className="overflow-hidden">

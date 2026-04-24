@@ -24,6 +24,7 @@ import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
 import { useToast } from '@/components/ui/toast'
 import { formatCurrency, formatDate, STATUS_LABELS } from '@/lib/utils'
+import { CompetitionCoverField } from '@/components/competition-cover-field'
 import type { League } from '@/types'
 
 // ─── Constantes ─────────────────────────────────────────────────────────────
@@ -83,6 +84,7 @@ interface LeagueForm {
   golden_point: boolean
   has_playoffs: boolean
   status: LeagueStatus
+  cover_image_url: string
 }
 
 const DEFAULT_FORM: LeagueForm = {
@@ -99,6 +101,7 @@ const DEFAULT_FORM: LeagueForm = {
   golden_point: false,
   has_playoffs: false,
   status: 'draft',
+  cover_image_url: '',
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -129,6 +132,7 @@ function leagueToForm(league: League): LeagueForm {
     golden_point: league.golden_point,
     has_playoffs: league.has_playoffs,
     status: league.status,
+    cover_image_url: (league as unknown as Record<string, unknown>).cover_image_url as string ?? '',
   }
 }
 
@@ -238,6 +242,7 @@ export default function GestionLigasPage() {
       has_playoffs: form.has_playoffs,
       playoff_format: form.has_playoffs ? 'bracket' : null,
       status: form.status,
+      cover_image_url: form.cover_image_url.trim() || null,
       scoring_rules: {
         win_2_0: 3,
         win_2_1: 2,
@@ -289,6 +294,7 @@ export default function GestionLigasPage() {
       has_playoffs: form.has_playoffs,
       playoff_format: form.has_playoffs ? 'bracket' : null,
       status: form.status,
+      cover_image_url: form.cover_image_url.trim() || null,
     }
 
     const { error } = await supabase
@@ -435,6 +441,11 @@ export default function GestionLigasPage() {
             onChange={e => setField('description', e.target.value)}
           />
         </div>
+
+        <CompetitionCoverField
+          value={form.cover_image_url}
+          onChange={val => setField('cover_image_url', val)}
+        />
 
         {/* Toggles */}
         <div className="space-y-3 pt-1">
@@ -674,6 +685,7 @@ interface LeagueCardProps {
 
 function LeagueCard({ league, onEdit, onDelete }: LeagueCardProps) {
   const statusInfo = STATUS_LABELS[league.status]
+  const cover = (league as unknown as Record<string, unknown>).cover_image_url as string | null | undefined
 
   const formatLabel =
     league.format === 'round_robin' ? 'Round Robin' : 'Liga'
@@ -681,8 +693,15 @@ function LeagueCard({ league, onEdit, onDelete }: LeagueCardProps) {
   return (
     <Link
       href={`/admin/ligas/${league.id}`}
-      className="group relative rounded-xl border border-slate-700/50 bg-slate-800/50 p-5 hover:border-cyan-500/50 hover:bg-slate-800/80 transition-all cursor-pointer block"
+      className="group relative rounded-xl border border-slate-700/50 bg-slate-800/50 overflow-hidden hover:border-cyan-500/50 hover:bg-slate-800/80 transition-all cursor-pointer block"
     >
+      {cover && (
+        <div className="relative h-28 w-full overflow-hidden border-b border-slate-700/50"
+          style={{ backgroundImage: `url(${cover})`, backgroundSize: 'cover', backgroundPosition: 'center' }}>
+          <div className="absolute inset-0 bg-gradient-to-t from-slate-800 via-slate-800/30 to-transparent" />
+        </div>
+      )}
+      <div className="p-5">
       {/* Acciones */}
       <div
         className="absolute top-3 right-3 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-10"
@@ -774,6 +793,7 @@ function LeagueCard({ league, onEdit, onDelete }: LeagueCardProps) {
           {league.sets_to_win} sets · {league.games_per_set} juegos
           {league.golden_point && ' · GP'}
         </span>
+      </div>
       </div>
     </Link>
   )

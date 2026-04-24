@@ -5,6 +5,7 @@ import { Input } from '@/components/ui/input'
 import { createClient } from '@/lib/supabase/client'
 import { Suspense, useState, useCallback, useEffect } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
+import Image from 'next/image'
 import Link from 'next/link'
 import { Eye, EyeOff } from 'lucide-react'
 import { GoogleReCaptchaProvider, useGoogleReCaptcha } from 'react-google-recaptcha-v3'
@@ -180,11 +181,9 @@ function LoginForm() {
       <div className={`w-full ${isRegister ? 'max-w-xl' : 'max-w-md'}`}>
         {/* Logo */}
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-cyan-600 mb-4">
-            <span className="text-2xl font-bold text-white">NM</span>
+          <div className="inline-flex items-center justify-center">
+            <Image src="/logo-marina.png" alt="Nueva Marina Pádel & Sport" width={280} height={198} priority className="h-auto w-[240px]" />
           </div>
-          <h1 className="text-2xl font-bold text-white">Nueva Marina</h1>
-          <p className="text-sm text-slate-400 mt-1">Padel & Sport</p>
         </div>
 
         {/* Card */}
