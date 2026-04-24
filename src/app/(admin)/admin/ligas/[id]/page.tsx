@@ -891,6 +891,14 @@ export default function LigaDetallePage() {
         <Link href="/admin/ligas" className="text-slate-400 hover:text-white">
           <ArrowLeft size={20} />
         </Link>
+        {(league as unknown as Record<string, unknown>).cover_image_url ? (
+          /* eslint-disable-next-line @next/next/no-img-element */
+          <img
+            src={(league as unknown as Record<string, unknown>).cover_image_url as string}
+            alt={league.name}
+            className="w-14 h-14 rounded-lg object-cover border border-slate-600 shrink-0"
+          />
+        ) : null}
         <div className="flex-1 min-w-0">
           <h1 className="text-2xl font-bold text-white flex items-center gap-2 flex-wrap">
             <Trophy className="text-cyan-400" /> {league.name}

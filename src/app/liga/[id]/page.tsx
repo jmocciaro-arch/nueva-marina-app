@@ -14,6 +14,7 @@ interface League {
   end_date: string | null
   status: string
   description: string | null
+  cover_image_url: string | null
 }
 interface Category {
   id: number
@@ -109,21 +110,54 @@ export default function LigaPublicaPage() {
 
   return (
     <div className="min-h-screen bg-slate-950 text-white pb-16">
-      {/* Header */}
-      <div className="bg-gradient-to-br from-cyan-900 via-slate-900 to-slate-950 border-b border-cyan-500/20 px-4 py-8">
-        <div className="max-w-5xl mx-auto">
-          <h1 className="text-3xl sm:text-4xl font-bold flex items-center gap-3">
-            <Trophy size={32} className="text-cyan-400" />
-            {league.name}
-          </h1>
-          <p className="text-slate-300 mt-2">
-            {league.season && `Temporada ${league.season} · `}
-            {league.start_date && new Date(league.start_date).toLocaleDateString('es-ES')}
-            {league.end_date && ` → ${new Date(league.end_date).toLocaleDateString('es-ES')}`}
-          </p>
-          {league.description && <p className="text-slate-400 mt-2 text-sm">{league.description}</p>}
+      {/* Hero con portada */}
+      {league.cover_image_url ? (
+        <div className="relative w-full border-b border-cyan-500/20 overflow-hidden">
+          {/* Fondo borroso para llenar márgenes en pantallas anchas */}
+          <div
+            aria-hidden
+            className="absolute inset-0"
+            style={{ backgroundImage: `url(${league.cover_image_url})`, backgroundSize: 'cover', backgroundPosition: 'center', filter: 'blur(40px)', opacity: 0.5, transform: 'scale(1.1)' }}
+          />
+          <div className="absolute inset-0 bg-gradient-to-b from-slate-950/40 via-slate-950/30 to-slate-950" />
+          {/* Imagen central */}
+          <div className="relative max-w-5xl mx-auto px-4 pt-6 pb-8 flex flex-col items-center">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={league.cover_image_url}
+              alt={league.name}
+              className="w-full max-w-md h-auto max-h-[60vh] object-contain rounded-2xl shadow-2xl"
+            />
+            <div className="text-center mt-6">
+              <h1 className="text-3xl sm:text-4xl font-bold flex items-center justify-center gap-3 drop-shadow-lg">
+                <Trophy size={32} className="text-cyan-400" />
+                {league.name}
+              </h1>
+              <p className="text-slate-200 mt-2 drop-shadow">
+                {league.season && `Temporada ${league.season} · `}
+                {league.start_date && new Date(league.start_date).toLocaleDateString('es-ES')}
+                {league.end_date && ` → ${new Date(league.end_date).toLocaleDateString('es-ES')}`}
+              </p>
+              {league.description && <p className="text-slate-300 mt-2 text-sm max-w-2xl mx-auto">{league.description}</p>}
+            </div>
+          </div>
         </div>
-      </div>
+      ) : (
+        <div className="bg-gradient-to-br from-cyan-900 via-slate-900 to-slate-950 border-b border-cyan-500/20 px-4 py-8">
+          <div className="max-w-5xl mx-auto">
+            <h1 className="text-3xl sm:text-4xl font-bold flex items-center gap-3">
+              <Trophy size={32} className="text-cyan-400" />
+              {league.name}
+            </h1>
+            <p className="text-slate-300 mt-2">
+              {league.season && `Temporada ${league.season} · `}
+              {league.start_date && new Date(league.start_date).toLocaleDateString('es-ES')}
+              {league.end_date && ` → ${new Date(league.end_date).toLocaleDateString('es-ES')}`}
+            </p>
+            {league.description && <p className="text-slate-400 mt-2 text-sm">{league.description}</p>}
+          </div>
+        </div>
+      )}
 
       <div className="max-w-5xl mx-auto px-4 pt-6 space-y-6">
         {/* KPIs */}

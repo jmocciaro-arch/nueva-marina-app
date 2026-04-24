@@ -18,7 +18,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
 
   const { data: league } = await admin
     .from('nm_leagues')
-    .select('id, name, season, format, start_date, end_date, status, description')
+    .select('id, name, season, format, start_date, end_date, status, description, cover_image_url')
     .eq('id', leagueId)
     .single()
   if (!league) return NextResponse.json({ error: 'Liga no encontrada' }, { status: 404 })
