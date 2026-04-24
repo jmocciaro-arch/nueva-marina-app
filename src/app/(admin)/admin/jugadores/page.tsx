@@ -124,26 +124,30 @@ export default function GestionJugadoresPage() {
         return
       }
 
-      // 2) Traer usuarios de esos miembros
+      // 2) Traer usuarios de esos miembros — en lotes de 100 para no
+      //    superar el límite de URL de PostgREST cuando hay muchos jugadores.
       const userIds = [...new Set(membersData.map(m => m.user_id))]
-      const { data: usersData } = await supabase
-        .from('nm_users')
-        .select('*')
-        .in('id', userIds)
-
+      const CHUNK = 100
       const userMap: Record<string, User> = {}
-      for (const u of usersData ?? []) userMap[u.id] = u as User
+      for (let i = 0; i < userIds.length; i += CHUNK) {
+        const chunk = userIds.slice(i, i + CHUNK)
+        const { data: chunkData } = await supabase.from('nm_users').select('*').in('id', chunk)
+        for (const u of chunkData ?? []) userMap[u.id] = u as User
+      }
 
-      // 3) Traer player_profiles (opcional — si la tabla existe/tiene acceso)
+      // 3) Traer player_profiles (opcional — también en lotes)
       const profileMap: Record<string, PlayerProfile> = {}
       try {
-        const { data: profilesData } = await supabase
-          .from('nm_player_profiles')
-          .select('*')
-          .in('user_id', userIds)
-        for (const p of profilesData ?? []) {
-          const pp = p as PlayerProfile
-          profileMap[pp.user_id] = pp
+        for (let i = 0; i < userIds.length; i += CHUNK) {
+          const chunk = userIds.slice(i, i + CHUNK)
+          const { data: profilesData } = await supabase
+            .from('nm_player_profiles')
+            .select('*')
+            .in('user_id', chunk)
+          for (const p of profilesData ?? []) {
+            const pp = p as PlayerProfile
+            profileMap[pp.user_id] = pp
+          }
         }
       } catch {
         // silenciar: si falla el profile, igual mostramos la lista

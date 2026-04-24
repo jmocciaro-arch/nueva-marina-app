@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { useParams } from 'next/navigation'
 import { Trophy, Users, CalendarDays, Medal, Layers, ListOrdered, Loader2, Shield } from 'lucide-react'
 import { LeagueMatchGrid } from '@/components/league-match-grid'
+import { SponsorBanner, type SponsorItem } from '@/components/sponsor-banner'
 
 interface League {
   id: number
@@ -15,6 +16,7 @@ interface League {
   status: string
   description: string | null
   cover_image_url: string | null
+  sponsors_jsonb: SponsorItem[] | null
 }
 interface Category {
   id: number
@@ -108,58 +110,40 @@ export default function LigaPublicaPage() {
 
   const genderLabel: Record<string, string> = { male: 'Masculino', female: 'Femenino', mixed: 'Mixto' }
 
+  // Lista de sponsors a mostrar: si vienen de sponsors_jsonb los usa; si no, fallback a cover_image_url
+  const sponsors: SponsorItem[] = league.sponsors_jsonb && league.sponsors_jsonb.length > 0
+    ? league.sponsors_jsonb
+    : (league.cover_image_url ? [{ image_url: league.cover_image_url, alt: league.name }] : [])
+
   return (
     <div className="min-h-screen bg-slate-950 text-white pb-16">
-      {/* Hero con portada */}
-      {league.cover_image_url ? (
-        <div className="relative w-full border-b border-cyan-500/20 overflow-hidden">
-          {/* Fondo borroso para llenar márgenes en pantallas anchas */}
-          <div
-            aria-hidden
-            className="absolute inset-0"
-            style={{ backgroundImage: `url(${league.cover_image_url})`, backgroundSize: 'cover', backgroundPosition: 'center', filter: 'blur(40px)', opacity: 0.5, transform: 'scale(1.1)' }}
-          />
-          <div className="absolute inset-0 bg-gradient-to-b from-slate-950/40 via-slate-950/30 to-slate-950" />
-          {/* Imagen central */}
-          <div className="relative max-w-5xl mx-auto px-4 pt-6 pb-8 flex flex-col items-center">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={league.cover_image_url}
-              alt={league.name}
-              className="w-full max-w-md h-auto max-h-[60vh] object-contain rounded-2xl shadow-2xl"
-            />
-            <div className="text-center mt-6">
-              <h1 className="text-3xl sm:text-4xl font-bold flex items-center justify-center gap-3 drop-shadow-lg">
-                <Trophy size={32} className="text-cyan-400" />
-                {league.name}
-              </h1>
-              <p className="text-slate-200 mt-2 drop-shadow">
-                {league.season && `Temporada ${league.season} · `}
-                {league.start_date && new Date(league.start_date).toLocaleDateString('es-ES')}
-                {league.end_date && ` → ${new Date(league.end_date).toLocaleDateString('es-ES')}`}
-              </p>
-              {league.description && <p className="text-slate-300 mt-2 text-sm max-w-2xl mx-auto">{league.description}</p>}
-            </div>
-          </div>
+      {/* Header compacto con título */}
+      <div className="bg-gradient-to-br from-cyan-900/40 via-slate-900 to-slate-950 border-b border-cyan-500/20 px-4 py-6">
+        <div className="max-w-7xl mx-auto">
+          <h1 className="text-2xl sm:text-3xl font-bold flex items-center gap-3">
+            <Trophy size={28} className="text-cyan-400" />
+            {league.name}
+          </h1>
+          <p className="text-slate-300 mt-1.5 text-sm">
+            {league.season && `Temporada ${league.season} · `}
+            {league.start_date && new Date(league.start_date).toLocaleDateString('es-ES')}
+            {league.end_date && ` → ${new Date(league.end_date).toLocaleDateString('es-ES')}`}
+          </p>
+          {league.description && <p className="text-slate-400 mt-1 text-sm">{league.description}</p>}
         </div>
-      ) : (
-        <div className="bg-gradient-to-br from-cyan-900 via-slate-900 to-slate-950 border-b border-cyan-500/20 px-4 py-8">
-          <div className="max-w-5xl mx-auto">
-            <h1 className="text-3xl sm:text-4xl font-bold flex items-center gap-3">
-              <Trophy size={32} className="text-cyan-400" />
-              {league.name}
-            </h1>
-            <p className="text-slate-300 mt-2">
-              {league.season && `Temporada ${league.season} · `}
-              {league.start_date && new Date(league.start_date).toLocaleDateString('es-ES')}
-              {league.end_date && ` → ${new Date(league.end_date).toLocaleDateString('es-ES')}`}
-            </p>
-            {league.description && <p className="text-slate-400 mt-2 text-sm">{league.description}</p>}
-          </div>
+      </div>
+
+      {/* Banner móvil arriba (solo en pantallas chicas) */}
+      {sponsors.length > 0 && (
+        <div className="lg:hidden px-4 pt-4">
+          <SponsorBanner sponsors={sponsors} variant="landscape" />
         </div>
       )}
 
-      <div className="max-w-5xl mx-auto px-4 pt-6 space-y-6">
+      <div className="max-w-7xl mx-auto px-4 pt-6">
+        <div className={sponsors.length > 0 ? 'grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-6' : ''}>
+          {/* Columna principal */}
+          <div className="space-y-6 min-w-0">
         {/* KPIs */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           <Kpi label="Categorías" value={categories.length} icon={<Layers size={18} />} />
@@ -320,6 +304,22 @@ export default function LigaPublicaPage() {
         <div className="text-center text-xs text-slate-500 flex items-center justify-center gap-1 pt-4">
           <Shield size={12} />
           Los jugadores que no autorizaron la publicación de sus datos aparecen como &quot;Jugador N&quot; — RGPD / LOPDGDD.
+        </div>
+          </div>
+
+          {/* Sidebar fijo con sponsors (solo desktop) */}
+          {sponsors.length > 0 && (
+            <aside className="hidden lg:block">
+              <div className="sticky top-6">
+                <SponsorBanner sponsors={sponsors} variant="portrait" />
+                {sponsors.length > 1 && (
+                  <p className="mt-3 text-center text-xs text-slate-500">
+                    Sponsors de la liga
+                  </p>
+                )}
+              </div>
+            </aside>
+          )}
         </div>
       </div>
     </div>
