@@ -121,10 +121,14 @@ function LoginForm() {
         }
 
         // Create club membership (club_id = 1 for Nueva Marina)
+        // Self-registration always means the person wants to play, so flag
+        // is_player=true. Otherwise admins would have to manually toggle
+        // every new sign-up before the user shows up in /admin/jugadores.
         const { error: memberError } = await supabase.from('nm_club_members').insert({
           club_id: 1,
           user_id: data.user.id,
           role: 'player',
+          is_player: true,
           is_active: true,
         })
         if (memberError) {

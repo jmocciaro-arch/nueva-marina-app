@@ -59,27 +59,33 @@ export default function SociosGimPage() {
     }
 
     const userIds = members.map(m => m.user_id)
+    const CHUNK = 100
 
-    // 2) Datos de los usuarios
-    const { data: users } = await supabase
-      .from('nm_users')
-      .select('id, full_name, email, phone, avatar_url, city')
-      .in('id', userIds)
-
+    // 2) Datos de los usuarios — en lotes de 100 para no superar el límite
+    //    de URL de PostgREST cuando hay cientos de socios.
     const userMap: Record<string, { full_name: string | null; email: string | null; phone: string | null; avatar_url: string | null; city: string | null }> = {}
-    for (const u of users ?? []) userMap[u.id] = u
+    for (let i = 0; i < userIds.length; i += CHUNK) {
+      const chunk = userIds.slice(i, i + CHUNK)
+      const { data: users } = await supabase
+        .from('nm_users')
+        .select('id, full_name, email, phone, avatar_url, city')
+        .in('id', chunk)
+      for (const u of users ?? []) userMap[u.id] = u
+    }
 
-    // 3) Última membresía del gym (la más reciente por user)
-    const { data: gyms } = await supabase
-      .from('nm_gym_memberships')
-      .select('user_id, plan, start_date, end_date, status')
-      .in('user_id', userIds)
-      .order('start_date', { ascending: false })
-
+    // 3) Última membresía del gym (la más reciente por user) — también en lotes
     const latestGym: Record<string, { plan: string | null; end_date: string | null; status: string | null }> = {}
-    for (const g of gyms ?? []) {
-      if (!latestGym[g.user_id]) {
-        latestGym[g.user_id] = { plan: g.plan, end_date: g.end_date, status: g.status }
+    for (let i = 0; i < userIds.length; i += CHUNK) {
+      const chunk = userIds.slice(i, i + CHUNK)
+      const { data: gyms } = await supabase
+        .from('nm_gym_memberships')
+        .select('user_id, plan, start_date, end_date, status')
+        .in('user_id', chunk)
+        .order('start_date', { ascending: false })
+      for (const g of gyms ?? []) {
+        if (!latestGym[g.user_id]) {
+          latestGym[g.user_id] = { plan: g.plan, end_date: g.end_date, status: g.status }
+        }
       }
     }
 
