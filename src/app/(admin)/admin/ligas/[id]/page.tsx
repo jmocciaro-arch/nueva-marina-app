@@ -151,6 +151,11 @@ export default function LigaDetallePage() {
   const [confirmingDelete, setConfirmingDelete] = useState(false)
   const [openingDeleteFor, setOpeningDeleteFor] = useState<number | null>(null)
 
+  // Agregar equipo manual a una categoría
+  const [addingTeam, setAddingTeam] = useState(false)
+  const [newTeamForm, setNewTeamForm] = useState({ team_name: '', player1_name: '', player2_name: '', player3_name: '' })
+  const [savingNewTeam, setSavingNewTeam] = useState(false)
+
   // Historial de borrados
   interface DeletionRecord {
     id: number
@@ -399,6 +404,36 @@ export default function LigaDetallePage() {
     } finally {
       setConfirmingDelete(false)
     }
+  }
+
+  function openAddTeam() {
+    setNewTeamForm({ team_name: '', player1_name: '', player2_name: '', player3_name: '' })
+    setAddingTeam(true)
+  }
+
+  async function handleCreateTeam() {
+    if (!cat) { toast('error', 'Elegí una categoría'); return }
+    const tn = newTeamForm.team_name.trim()
+    const p1 = newTeamForm.player1_name.trim()
+    const p2 = newTeamForm.player2_name.trim()
+    const p3 = newTeamForm.player3_name.trim()
+    if (!tn) { toast('warning', 'El nombre del equipo es requerido'); return }
+    if (!p1 || !p2) { toast('warning', 'Cargá al menos 2 jugadores'); return }
+    setSavingNewTeam(true)
+    const supabase = createClient()
+    const { error } = await supabase.from('nm_league_teams').insert({
+      category_id: cat.id,
+      team_name: tn,
+      player1_name: p1,
+      player2_name: p2,
+      player3_name: p3 || null,
+      is_active: true,
+    })
+    setSavingNewTeam(false)
+    if (error) { toast('error', `No se pudo crear el equipo: ${error.message}`); return }
+    toast('success', `Equipo "${tn}" agregado a ${cat.name}`)
+    setAddingTeam(false)
+    await load()
   }
 
   async function loadDeletionHistory() {
@@ -1067,6 +1102,12 @@ export default function LigaDetallePage() {
                 </h2>
                 <div className="flex items-center gap-2 mb-3 flex-wrap">
                   <Button
+                    onClick={openAddTeam}
+                    className="text-xs flex items-center gap-1"
+                  >
+                    <Plus size={12} /> Agregar equipo
+                  </Button>
+                  <Button
                     variant="ghost"
                     onClick={() => autoLink('category')}
                     disabled={autoLinking}
@@ -1334,6 +1375,57 @@ export default function LigaDetallePage() {
             <div className="flex justify-end">
               <Button onClick={() => setAutoLinkReport(null)}>Entendido</Button>
             </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* Modal agregar equipo */}
+      {addingTeam && cat && (
+        <Modal
+          open={addingTeam}
+          onClose={() => setAddingTeam(false)}
+          title={`Agregar equipo a ${cat.name}`}
+          footer={
+            <>
+              <Button variant="ghost" onClick={() => setAddingTeam(false)} disabled={savingNewTeam}>
+                Cancelar
+              </Button>
+              <Button onClick={handleCreateTeam} disabled={savingNewTeam}>
+                {savingNewTeam ? 'Guardando...' : 'Crear equipo'}
+              </Button>
+            </>
+          }
+        >
+          <div className="space-y-3">
+            <Input
+              label="Nombre del equipo *"
+              placeholder="Ej: Pérez / González"
+              value={newTeamForm.team_name}
+              onChange={e => setNewTeamForm(f => ({ ...f, team_name: e.target.value }))}
+            />
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <Input
+                label="Jugador 1 *"
+                placeholder="Nombre y apellido"
+                value={newTeamForm.player1_name}
+                onChange={e => setNewTeamForm(f => ({ ...f, player1_name: e.target.value }))}
+              />
+              <Input
+                label="Jugador 2 *"
+                placeholder="Nombre y apellido"
+                value={newTeamForm.player2_name}
+                onChange={e => setNewTeamForm(f => ({ ...f, player2_name: e.target.value }))}
+              />
+            </div>
+            <Input
+              label="Jugador 3 (opcional)"
+              placeholder="Solo si la categoría admite suplente"
+              value={newTeamForm.player3_name}
+              onChange={e => setNewTeamForm(f => ({ ...f, player3_name: e.target.value }))}
+            />
+            <p className="text-[11px] text-slate-500">
+              Después podés vincular cada jugador a un usuario registrado del club desde la lista de equipos (botón con su nombre).
+            </p>
           </div>
         </Modal>
       )}
