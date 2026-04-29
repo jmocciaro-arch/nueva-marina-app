@@ -157,6 +157,11 @@ export default function LigaDetallePage() {
   const [newTeamForm, setNewTeamForm] = useState({ team_name: '', player1_name: '', player2_name: '', player3_name: '' })
   const [savingNewTeam, setSavingNewTeam] = useState(false)
 
+  // Editar equipo existente (cambiar nombres / agregar suplente)
+  const [editingTeam, setEditingTeam] = useState<Team | null>(null)
+  const [editTeamForm, setEditTeamForm] = useState({ team_name: '', player1_name: '', player2_name: '', player3_name: '' })
+  const [savingEditTeam, setSavingEditTeam] = useState(false)
+
   // Historial de borrados
   interface DeletionRecord {
     id: number
@@ -434,6 +439,47 @@ export default function LigaDetallePage() {
     if (error) { toast('error', `No se pudo crear el equipo: ${error.message}`); return }
     toast('success', `Equipo "${tn}" agregado a ${cat.name}`)
     setAddingTeam(false)
+    await load()
+  }
+
+  function openEditTeam(t: Team) {
+    setEditTeamForm({
+      team_name: t.team_name ?? '',
+      player1_name: t.player1_name ?? '',
+      player2_name: t.player2_name ?? '',
+      player3_name: t.player3_name ?? '',
+    })
+    setEditingTeam(t)
+  }
+
+  async function handleEditTeam() {
+    if (!editingTeam) return
+    const tn = editTeamForm.team_name.trim()
+    const p1 = editTeamForm.player1_name.trim()
+    const p2 = editTeamForm.player2_name.trim()
+    const p3 = editTeamForm.player3_name.trim()
+    if (!tn) { toast('warning', 'El nombre del equipo es requerido'); return }
+    if (!p1 || !p2) { toast('warning', 'El equipo necesita al menos 2 jugadores'); return }
+
+    // Si un nombre cambió respecto al original, soltar la vinculación con el user_id
+    // (el slot ahora apunta a otra persona). El admin puede re-vincular después.
+    const update: Record<string, unknown> = {
+      team_name: tn,
+      player1_name: p1,
+      player2_name: p2,
+      player3_name: p3 || null,
+    }
+    if (editingTeam.player1_name !== p1) update.player1_id = null
+    if (editingTeam.player2_name !== p2) update.player2_id = null
+    if ((editingTeam.player3_name ?? '') !== p3) update.player3_id = null
+
+    setSavingEditTeam(true)
+    const supabase = createClient()
+    const { error } = await supabase.from('nm_league_teams').update(update).eq('id', editingTeam.id)
+    setSavingEditTeam(false)
+    if (error) { toast('error', `No se pudo guardar: ${error.message}`); return }
+    toast('success', `Equipo "${tn}" actualizado`)
+    setEditingTeam(null)
     await load()
   }
 
@@ -1132,16 +1178,25 @@ export default function LigaDetallePage() {
                     <div key={t.id} className="rounded-lg bg-slate-800/50 p-2 text-xs">
                       <div className="flex items-start justify-between gap-2 mb-1">
                         <div className="font-medium text-white flex-1 truncate">{t.team_name ?? '(sin nombre)'}</div>
-                        <button
-                          onClick={() => openDeleteModal(t)}
-                          disabled={openingDeleteFor === t.id}
-                          title="Borrar equipo (se pide motivo)"
-                          className="shrink-0 p-1 rounded text-slate-500 hover:text-red-400 hover:bg-red-500/10 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                        >
-                          {openingDeleteFor === t.id
-                            ? <Loader2 size={12} className="animate-spin" />
-                            : <Trash2 size={12} />}
-                        </button>
+                        <div className="flex items-center gap-0.5 shrink-0">
+                          <button
+                            onClick={() => openEditTeam(t)}
+                            title="Editar equipo (cambiar nombre o jugadores)"
+                            className="p-1 rounded text-slate-500 hover:text-cyan-400 hover:bg-cyan-500/10 transition-colors"
+                          >
+                            <Pencil size={12} />
+                          </button>
+                          <button
+                            onClick={() => openDeleteModal(t)}
+                            disabled={openingDeleteFor === t.id}
+                            title="Borrar equipo (se pide motivo)"
+                            className="p-1 rounded text-slate-500 hover:text-red-400 hover:bg-red-500/10 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            {openingDeleteFor === t.id
+                              ? <Loader2 size={12} className="animate-spin" />
+                              : <Trash2 size={12} />}
+                          </button>
+                        </div>
                       </div>
                       <div className="space-y-1">
                         {([1, 2, 3] as const).map(slot => {
@@ -1426,6 +1481,58 @@ export default function LigaDetallePage() {
             />
             <p className="text-[11px] text-slate-500">
               Después podés vincular cada jugador a un usuario registrado del club desde la lista de equipos (botón con su nombre).
+            </p>
+          </div>
+        </Modal>
+      )}
+
+      {/* Modal editar equipo */}
+      {editingTeam && (
+        <Modal
+          open={!!editingTeam}
+          onClose={() => setEditingTeam(null)}
+          title={`Editar equipo — ${editingTeam.team_name ?? '(sin nombre)'}`}
+          footer={
+            <>
+              <Button variant="ghost" onClick={() => setEditingTeam(null)} disabled={savingEditTeam}>
+                Cancelar
+              </Button>
+              <Button onClick={handleEditTeam} disabled={savingEditTeam}>
+                {savingEditTeam ? 'Guardando...' : 'Guardar cambios'}
+              </Button>
+            </>
+          }
+        >
+          <div className="space-y-3">
+            <Input
+              label="Nombre del equipo *"
+              placeholder="Ej: Pérez / González"
+              value={editTeamForm.team_name}
+              onChange={e => setEditTeamForm(f => ({ ...f, team_name: e.target.value }))}
+            />
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <Input
+                label="Jugador 1 *"
+                placeholder="Nombre y apellido"
+                value={editTeamForm.player1_name}
+                onChange={e => setEditTeamForm(f => ({ ...f, player1_name: e.target.value }))}
+              />
+              <Input
+                label="Jugador 2 *"
+                placeholder="Nombre y apellido"
+                value={editTeamForm.player2_name}
+                onChange={e => setEditTeamForm(f => ({ ...f, player2_name: e.target.value }))}
+              />
+            </div>
+            <Input
+              label="Jugador 3 (opcional / suplente)"
+              placeholder="Dejá vacío si no hay suplente"
+              value={editTeamForm.player3_name}
+              onChange={e => setEditTeamForm(f => ({ ...f, player3_name: e.target.value }))}
+            />
+            <p className="text-[11px] text-slate-500">
+              Si cambiás el nombre de un jugador, se desvincula del usuario que tenía asociado (si lo tenía).
+              Después podés volver a vincularlo desde el botón con su nombre en la lista de equipos.
             </p>
           </div>
         </Modal>
