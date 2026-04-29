@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { useToast } from '@/components/ui/toast'
 import { formatCurrency, generateTimeSlots } from '@/lib/utils'
-import { Trash2, Tag } from 'lucide-react'
+import { Trash2, Tag, Search, X, Check } from 'lucide-react'
 import type { Court, CourtSchedule, Booking } from '@/types'
 import { lookupPrice } from '@/lib/api/pricing'
 import { useAuth } from '@/lib/auth-context'
@@ -52,6 +52,12 @@ export function BookingModal({
   const [status, setStatus] = useState('confirmed')
   const [paymentMethod, setPaymentMethod] = useState('cash')
 
+  // Vinculación a un socio/jugador registrado
+  const [bookedById, setBookedById] = useState<string | null>(null)
+  type UserSuggestion = { id: string; full_name: string | null; email: string | null; phone: string | null }
+  const [userSuggestions, setUserSuggestions] = useState<UserSuggestion[]>([])
+  const [showSuggestions, setShowSuggestions] = useState(false)
+
   const isEdit = !!booking
 
   useEffect(() => {
@@ -65,6 +71,21 @@ export function BookingModal({
       setPaymentMethod(booking.payment_method || 'cash')
       // Player info from notes (admin bookings store name in notes)
       if (booking.notes) setCustomerName(booking.notes)
+      // Si la reserva está vinculada a un socio, cargar sus datos
+      const bk = booking as unknown as Record<string, unknown>
+      const linkedId = (bk.booked_by as string | null) ?? null
+      setBookedById(linkedId)
+      if (linkedId) {
+        const supabase = createClient()
+        supabase.from('nm_users').select('id, full_name, email, phone').eq('id', linkedId).single()
+          .then(({ data }) => {
+            if (data) {
+              if (data.full_name) setCustomerName(data.full_name)
+              if (data.email) setCustomerEmail(data.email)
+              if (data.phone) setCustomerPhone(data.phone)
+            }
+          })
+      }
     } else {
       setCourtId(initialCourt ? String(initialCourt.id) : courts[0] ? String(courts[0].id) : '')
       setDate(initialDate || new Date().toISOString().split('T')[0])
@@ -76,8 +97,43 @@ export function BookingModal({
       setNotes('')
       setStatus('confirmed')
       setPaymentMethod('cash')
+      setBookedById(null)
+      setUserSuggestions([])
+      setShowSuggestions(false)
     }
   }, [booking, initialCourt, initialDate, initialTime, courts, open])
+
+  // Buscar socios/jugadores cuando el admin tipea el nombre (debounce 250ms)
+  useEffect(() => {
+    if (!isAdmin) return
+    if (bookedById) return // ya hay uno vinculado, no buscar
+    const q = customerName.trim()
+    if (q.length < 2) { setUserSuggestions([]); return }
+    const timer = setTimeout(async () => {
+      const supabase = createClient()
+      const { data } = await supabase
+        .from('nm_users')
+        .select('id, full_name, email, phone')
+        .or(`full_name.ilike.%${q}%,email.ilike.%${q}%`)
+        .limit(8)
+      setUserSuggestions((data ?? []) as UserSuggestion[])
+    }, 250)
+    return () => clearTimeout(timer)
+  }, [customerName, isAdmin, bookedById])
+
+  function pickUser(u: UserSuggestion) {
+    setBookedById(u.id)
+    setCustomerName(u.full_name ?? '')
+    setCustomerEmail(u.email ?? '')
+    setCustomerPhone(u.phone ?? '')
+    setShowSuggestions(false)
+    setUserSuggestions([])
+  }
+
+  function unlinkUser() {
+    setBookedById(null)
+    setUserSuggestions([])
+  }
 
   // Calculate end time
   const endTime = (() => {
@@ -181,6 +237,7 @@ export function BookingModal({
       payment_method: paymentMethod,
       payment_status: status === 'confirmed' ? 'paid' : 'pending',
       notes: customerName || notes,
+      booked_by: bookedById,
       type: 'regular' as const,
     }
 
@@ -369,14 +426,52 @@ export function BookingModal({
         {isAdmin && (
           <>
             <div className="border-t border-slate-700 pt-4">
-              <h3 className="text-sm font-medium text-slate-300 mb-3">Datos del cliente</h3>
+              <h3 className="text-sm font-medium text-slate-300 mb-3 flex items-center gap-2">
+                Datos del cliente
+                {bookedById ? (
+                  <span className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full bg-cyan-500/15 border border-cyan-500/30 text-cyan-300">
+                    <Check size={11} /> Vinculado a socio/jugador
+                    <button type="button" onClick={unlinkUser} className="ml-1 hover:text-white" title="Desvincular y cargar manual">
+                      <X size={11} />
+                    </button>
+                  </span>
+                ) : (
+                  <span className="text-[11px] text-slate-500">Tipeá nombre o email para buscar socios</span>
+                )}
+              </h3>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <Input
-                  label="Nombre"
-                  placeholder="Nombre del cliente"
-                  value={customerName}
-                  onChange={e => setCustomerName(e.target.value)}
-                />
+                {/* Nombre con autocompletado */}
+                <div className="relative">
+                  <label className="block text-sm font-medium text-slate-300 mb-1">Nombre</label>
+                  <div className="relative">
+                    <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" />
+                    <input
+                      type="text"
+                      placeholder="Buscar socio o cargar manual"
+                      value={customerName}
+                      onChange={e => { setCustomerName(e.target.value); if (bookedById) setBookedById(null); setShowSuggestions(true) }}
+                      onFocus={() => setShowSuggestions(true)}
+                      onBlur={() => setTimeout(() => setShowSuggestions(false), 150)}
+                      className="w-full pl-8 pr-3 py-2 rounded-lg bg-slate-800 border border-slate-600 text-white text-sm placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-cyan-500/40 focus:border-cyan-500"
+                    />
+                  </div>
+                  {showSuggestions && !bookedById && userSuggestions.length > 0 && (
+                    <div className="absolute z-50 mt-1 w-full max-h-60 overflow-auto rounded-lg border border-slate-600 bg-slate-900 shadow-2xl">
+                      {userSuggestions.map(u => (
+                        <button
+                          key={u.id}
+                          type="button"
+                          onMouseDown={e => e.preventDefault()}
+                          onClick={() => pickUser(u)}
+                          className="w-full text-left px-3 py-2 hover:bg-slate-800 border-b border-slate-700/50 last:border-0"
+                        >
+                          <div className="text-sm text-white truncate">{u.full_name || '(sin nombre)'}</div>
+                          <div className="text-[11px] text-slate-400 truncate">{u.email || u.phone || '—'}</div>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
                 <Input
                   label="Telefono"
                   type="tel"
