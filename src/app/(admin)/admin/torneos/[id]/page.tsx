@@ -18,6 +18,7 @@ import { Modal } from '@/components/ui/modal'
 import { useToast } from '@/components/ui/toast'
 import { TournamentBracket, BracketConfigPanel } from '@/components/tournament-bracket'
 import type { BracketMatch, BracketConfig } from '@/components/tournament-bracket'
+import { StartLiveScorerButton } from '@/components/start-live-scorer-button'
 import { formatDate, STATUS_LABELS } from '@/lib/utils'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -891,14 +892,17 @@ function ScoreModal({
             {!match.team1_id || !match.team2_id ? (
               <p className="text-sm text-slate-500">Esperando que se definan los equipos.</p>
             ) : (
-              <Button
-                onClick={onStart}
-                disabled={saving}
-                className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500"
-              >
-                {saving ? <Loader2 size={16} className="animate-spin" /> : <Play size={16} />}
-                Iniciar Partido
-              </Button>
+              <div className="flex flex-col items-center gap-2">
+                <Button
+                  onClick={onStart}
+                  disabled={saving}
+                  className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500"
+                >
+                  {saving ? <Loader2 size={16} className="animate-spin" /> : <Play size={16} />}
+                  Iniciar Partido
+                </Button>
+                <StartLiveScorerButton matchType="tournament" matchId={match.id} label="📊 Marcador en vivo" variant="outline" />
+              </div>
             )}
             {/* Court selector */}
             <div className="w-full max-w-xs">
@@ -928,6 +932,11 @@ function ScoreModal({
                 </div>
               </div>
             )}
+
+            {/* Botón marcador en vivo */}
+            <div className="flex justify-center">
+              <StartLiveScorerButton matchType="tournament" matchId={match.id} label="🎾 Abrir marcador punto a punto" variant="primary" />
+            </div>
 
             {/* Teams header */}
             <div className="grid grid-cols-3 gap-2 text-center text-xs text-slate-500">

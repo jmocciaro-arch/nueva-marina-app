@@ -12,7 +12,9 @@ import {
   Wifi,
   Tv2,
   Users,
+  Volleyball,
 } from 'lucide-react'
+import { MatchLivePublicView } from '@/components/match-live-public-view'
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
@@ -131,8 +133,27 @@ export default function TorneoPublicPage() {
     showScores: true, showTimers: true, showCourts: true,
     showRoundHeaders: true, showByes: true, animationsEnabled: true,
   })
+  const [liveMatchIds, setLiveMatchIds] = useState<number[]>([])
 
   const supabase = createClient()
+
+  // Cargar partidos en vivo de este torneo
+  useEffect(() => {
+    const fetchLive = async () => {
+      const { data: lives } = await supabase
+        .from('nm_live_match_sessions')
+        .select('match_id')
+        .eq('match_type', 'tournament')
+        .in('status', ['live', 'paused'])
+      setLiveMatchIds((lives ?? []).map((l: { match_id: number }) => l.match_id))
+    }
+    fetchLive()
+    const channel = supabase
+      .channel(`torneo-live-${params.id}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'nm_live_match_sessions' }, fetchLive)
+      .subscribe()
+    return () => { channel.unsubscribe() }
+  }, [supabase, params.id])
 
   const loadData = useCallback(async () => {
     const [{ data: t, error: tErr }, { data: c, error: cErr }, { data: m, error: mErr }] =
@@ -275,6 +296,22 @@ export default function TorneoPublicPage() {
                 <Users className="w-3.5 h-3.5" />
                 {cat.name}
               </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Partidos en vivo ahora */}
+      {liveMatchIds.length > 0 && (
+        <div className="max-w-7xl mx-auto px-4 pt-6">
+          <h2 className="text-sm font-bold text-white mb-3 flex items-center gap-2">
+            <Volleyball size={16} className="text-cyan-400 animate-pulse" />
+            <span className="bg-cyan-500/20 text-cyan-300 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider">EN VIVO</span>
+            Partidos jugándose ahora ({liveMatchIds.length})
+          </h2>
+          <div className="space-y-3">
+            {liveMatchIds.map(matchId => (
+              <MatchLivePublicView key={matchId} matchType="tournament" matchId={matchId} compact />
             ))}
           </div>
         </div>

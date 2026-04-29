@@ -17,6 +17,7 @@ import { Input } from '@/components/ui/input'
 import { Modal } from '@/components/ui/modal'
 import { useToast } from '@/components/ui/toast'
 import { formatDate } from '@/lib/utils'
+import { StartLiveScorerButton } from '@/components/start-live-scorer-button'
 import { LeagueMatchGrid } from '@/components/league-match-grid'
 
 interface League {
@@ -1624,6 +1625,11 @@ export default function LigaDetallePage() {
                 <div className="text-white">{t1?.team_name ?? '?'}</div>
                 <div className="text-slate-500 text-xs">vs</div>
                 <div className="text-white">{t2?.team_name ?? '?'}</div>
+              </div>
+
+              {/* Botón marcador en vivo */}
+              <div className="flex justify-center pb-2 border-b border-slate-800">
+                <StartLiveScorerButton matchType="league" matchId={editingMatch.id} label="🎾 Abrir marcador en vivo (punto a punto)" variant="primary" />
               </div>
               <div>
                 <label className="block text-xs text-slate-400 mb-1">Fecha jugada</label>

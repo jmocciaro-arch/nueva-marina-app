@@ -2,7 +2,9 @@
 
 import { useEffect, useState } from 'react'
 import { useParams } from 'next/navigation'
-import { Trophy, Users, CalendarDays, Medal, Layers, ListOrdered, Loader2, Shield } from 'lucide-react'
+import { Trophy, Users, CalendarDays, Medal, Layers, ListOrdered, Loader2, Shield, Volleyball } from 'lucide-react'
+import { MatchLivePublicView } from '@/components/match-live-public-view'
+import { createClient } from '@/lib/supabase/client'
 import { LeagueMatchGrid } from '@/components/league-match-grid'
 import { SponsorBanner, type SponsorItem } from '@/components/sponsor-banner'
 
@@ -72,6 +74,27 @@ export default function LigaPublicaPage() {
   const [data, setData] = useState<ApiResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [activeCategoryId, setActiveCategoryId] = useState<number | null>(null)
+  const [liveMatchIds, setLiveMatchIds] = useState<number[]>([])
+
+  // Cargar partidos en vivo de esta liga
+  useEffect(() => {
+    if (!id) return
+    const supabase = createClient()
+    const fetchLive = async () => {
+      const { data: lives } = await supabase
+        .from('nm_live_match_sessions')
+        .select('match_id')
+        .eq('match_type', 'league')
+        .in('status', ['live', 'paused'])
+      setLiveMatchIds((lives ?? []).map((l: { match_id: number }) => l.match_id))
+    }
+    fetchLive()
+    const channel = supabase
+      .channel(`liga-live-${id}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'nm_live_match_sessions' }, fetchLive)
+      .subscribe()
+    return () => { channel.unsubscribe() }
+  }, [id])
 
   useEffect(() => {
     if (!id) return
@@ -151,6 +174,22 @@ export default function LigaPublicaPage() {
           <Kpi label="Jornadas" value={rounds.length} icon={<ListOrdered size={18} />} />
           <Kpi label="Partidos" value={matches.length} icon={<CalendarDays size={18} />} />
         </div>
+
+        {/* Partidos en vivo ahora */}
+        {liveMatchIds.length > 0 && (
+          <div>
+            <h2 className="text-sm font-bold text-white mb-3 flex items-center gap-2">
+              <Volleyball size={16} className="text-cyan-400 animate-pulse" />
+              <span className="bg-cyan-500/20 text-cyan-300 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider">EN VIVO</span>
+              Partidos jugándose ahora ({liveMatchIds.length})
+            </h2>
+            <div className="space-y-3">
+              {liveMatchIds.map(matchId => (
+                <MatchLivePublicView key={matchId} matchType="league" matchId={matchId} compact />
+              ))}
+            </div>
+          </div>
+        )}
 
         {categories.length === 0 ? (
           <Card>
