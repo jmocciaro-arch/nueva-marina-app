@@ -340,6 +340,31 @@ export function LiveMatchScorer({ sessionId, onMatchEnd, readOnly = false }: Liv
     toast('info', newStatus === 'paused' ? 'Partido pausado' : 'Partido reanudado')
   }, [session, sessionId, supabase, toast, readOnly])
 
+  // ─── Voice command bridge ────────────────────────────────────────────────
+  // The voice control component dispatches CustomEvents on `window`. We listen
+  // here so the scorer actually reacts to spoken commands (otherwise the
+  // recognition succeeds but no point is registered).
+  useEffect(() => {
+    if (readOnly) return
+
+    const onPoint = (e: Event) => {
+      const detail = (e as CustomEvent<{ team: 1 | 2; pointType?: string }>).detail
+      if (!detail) return
+      addPoint(detail.team, undefined, detail.pointType ?? 'normal')
+    }
+    const onUndo = () => { undoLastPoint() }
+    const onPause = () => { togglePause() }
+
+    window.addEventListener('match-voice-point', onPoint)
+    window.addEventListener('match-voice-undo', onUndo)
+    window.addEventListener('match-voice-pause', onPause)
+    return () => {
+      window.removeEventListener('match-voice-point', onPoint)
+      window.removeEventListener('match-voice-undo', onUndo)
+      window.removeEventListener('match-voice-pause', onPause)
+    }
+  }, [addPoint, undoLastPoint, togglePause, readOnly])
+
   // ─── Render ──────────────────────────────────────────────────────────────
 
   if (loading) return <div className="text-slate-400 text-center p-8">Cargando partido...</div>
