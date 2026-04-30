@@ -3,14 +3,26 @@
 import { useState, useCallback, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useAuth } from '@/lib/auth-context'
-import { BookingGrid } from '@/components/booking-grid'
+import { BookingGrid, type BookingView } from '@/components/booking-grid'
 import { BookingModal } from '@/components/booking-modal'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Card } from '@/components/ui/card'
-import { Calendar, Clock, MapPin, Plus } from 'lucide-react'
-import { formatCurrency, formatDate, formatTime } from '@/lib/utils'
+import { Calendar, Clock, Plus, LayoutGrid, GanttChart, ListOrdered, User } from 'lucide-react'
+import { cn, formatCurrency, formatDate, formatTime } from '@/lib/utils'
 import type { Court, CourtSchedule, Booking } from '@/types'
+import { useRealtimeRefresh } from '@/hooks/use-realtime-refresh'
+
+type ViewMode = BookingView | 'mine'
+
+const VIEW_STORAGE_KEY = 'nm_mis_reservas_view'
+
+const VIEW_OPTIONS: { id: ViewMode; label: string; icon: typeof LayoutGrid; mobileLabel?: string }[] = [
+  { id: 'mine',     label: 'Mis próximas', icon: User,         mobileLabel: 'Mías' },
+  { id: 'grid',     label: 'Grilla',       icon: LayoutGrid },
+  { id: 'timeline', label: 'Timeline',     icon: GanttChart },
+  { id: 'agenda',   label: 'Agenda',       icon: ListOrdered },
+]
 
 export default function MisReservasPage() {
   const { user } = useAuth()
@@ -22,7 +34,27 @@ export default function MisReservasPage() {
   const [selectedDate, setSelectedDate] = useState<string | undefined>()
   const [selectedTime, setSelectedTime] = useState<string | undefined>()
   const [refreshKey, setRefreshKey] = useState(0)
-  const [tab, setTab] = useState<'grid' | 'list'>('grid')
+  const [view, setView] = useState<ViewMode>('grid')
+
+  // En mobile, default a "Mis próximas" (más usable). En desktop, default "Grilla".
+  // Si el usuario eligió algo antes, usamos eso.
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const saved = window.localStorage.getItem(VIEW_STORAGE_KEY) as ViewMode | null
+    if (saved && (['mine', 'grid', 'timeline', 'agenda'] as ViewMode[]).includes(saved)) {
+      setView(saved)
+      return
+    }
+    const isMobile = window.matchMedia('(max-width: 768px)').matches
+    setView(isMobile ? 'mine' : 'grid')
+  }, [])
+
+  function handleViewChange(next: ViewMode) {
+    setView(next)
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem(VIEW_STORAGE_KEY, next)
+    }
+  }
 
   const loadData = useCallback(async () => {
     const supabase = createClient()
@@ -48,10 +80,19 @@ export default function MisReservasPage() {
     loadData()
   }, [loadData])
 
+  useRealtimeRefresh(['nm_bookings'], loadData)
+
   function handleSlotClick(court: Court, date: string, time: string) {
     setSelectedCourt(court)
     setSelectedDate(date)
     setSelectedTime(time)
+    setModalOpen(true)
+  }
+
+  function handleNewBooking() {
+    setSelectedCourt(undefined)
+    setSelectedDate(undefined)
+    setSelectedTime(undefined)
     setModalOpen(true)
   }
 
@@ -61,45 +102,48 @@ export default function MisReservasPage() {
   }
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
+    <div className="space-y-5">
+      <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-bold text-white">Mis Reservas</h1>
-          <p className="text-sm text-slate-400 mt-1">Consulta y gestiona tus reservas de pistas</p>
+          <p className="text-sm text-slate-400 mt-1">Reservá una pista o consultá tus próximas</p>
         </div>
-        <div className="flex items-center gap-2">
-          <div className="flex bg-slate-800 rounded-lg p-0.5">
-            <button
-              onClick={() => setTab('grid')}
-              className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${tab === 'grid' ? 'bg-cyan-600 text-white' : 'text-slate-400 hover:text-white'}`}
-            >
-              <Calendar size={14} className="inline mr-1" />
-              Calendario
-            </button>
-            <button
-              onClick={() => setTab('list')}
-              className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${tab === 'list' ? 'bg-cyan-600 text-white' : 'text-slate-400 hover:text-white'}`}
-            >
-              <Clock size={14} className="inline mr-1" />
-              Mis proximas
-            </button>
-          </div>
-        </div>
+        <Button onClick={handleNewBooking}>
+          <Plus size={16} className="mr-1" />
+          Reservar pista
+        </Button>
       </div>
 
-      {tab === 'grid' ? (
-        <BookingGrid
-          key={refreshKey}
-          onSlotClick={handleSlotClick}
-        />
-      ) : (
+      {/* Selector de vista */}
+      <div className="inline-flex items-center bg-slate-800/60 border border-slate-700/50 rounded-lg p-1 overflow-x-auto max-w-full">
+        {VIEW_OPTIONS.map(opt => {
+          const Icon = opt.icon
+          const active = view === opt.id
+          return (
+            <button
+              key={opt.id}
+              onClick={() => handleViewChange(opt.id)}
+              className={cn(
+                'flex items-center gap-1.5 px-3 py-2 rounded-md text-sm font-medium transition-colors whitespace-nowrap',
+                active ? 'bg-cyan-600 text-white shadow' : 'text-slate-400 hover:text-white hover:bg-slate-700/50',
+              )}
+            >
+              <Icon size={16} />
+              <span className="hidden sm:inline">{opt.label}</span>
+              <span className="sm:hidden">{opt.mobileLabel || opt.label}</span>
+            </button>
+          )
+        })}
+      </div>
+
+      {view === 'mine' ? (
         <div className="space-y-3">
           {myBookings.length === 0 ? (
             <Card>
               <div className="text-center py-12">
                 <Calendar size={48} className="mx-auto text-slate-600 mb-3" />
-                <p className="text-slate-400">No tenes reservas proximas</p>
-                <Button size="sm" className="mt-4" onClick={() => setTab('grid')}>
+                <p className="text-slate-400">No tenés reservas próximas</p>
+                <Button size="sm" className="mt-4" onClick={handleNewBooking}>
                   <Plus size={14} className="mr-1" />
                   Reservar pista
                 </Button>
@@ -108,20 +152,20 @@ export default function MisReservasPage() {
           ) : (
             myBookings.map(b => (
               <Card key={b.id} hover>
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-3 sm:gap-4 min-w-0">
                     <div
-                      className="w-1.5 h-12 rounded-full"
+                      className="w-1.5 h-12 rounded-full shrink-0"
                       style={{ backgroundColor: (b.court as unknown as Court)?.color || '#06b6d4' }}
                     />
-                    <div>
-                      <div className="flex items-center gap-2">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <span className="font-medium text-white">{(b.court as unknown as Court)?.name || 'Pista'}</span>
                         <Badge variant={b.status === 'confirmed' ? 'success' : 'warning'}>
                           {b.status === 'confirmed' ? 'Confirmada' : 'Pendiente'}
                         </Badge>
                       </div>
-                      <div className="flex items-center gap-3 mt-1 text-sm text-slate-400">
+                      <div className="flex items-center gap-3 mt-1 text-sm text-slate-400 flex-wrap">
                         <span className="flex items-center gap-1">
                           <Calendar size={12} />
                           {formatDate(b.date, { day: 'numeric', month: 'short', weekday: 'short' })}
@@ -133,9 +177,9 @@ export default function MisReservasPage() {
                       </div>
                     </div>
                   </div>
-                  <div className="text-right">
+                  <div className="text-right shrink-0">
                     {b.price != null && (
-                      <span className="text-lg font-bold text-cyan-400">{formatCurrency(b.price)}</span>
+                      <span className="text-base sm:text-lg font-bold text-cyan-400 tabular-nums">{formatCurrency(b.price)}</span>
                     )}
                   </div>
                 </div>
@@ -143,6 +187,12 @@ export default function MisReservasPage() {
             ))
           )}
         </div>
+      ) : (
+        <BookingGrid
+          key={refreshKey}
+          view={view}
+          onSlotClick={handleSlotClick}
+        />
       )}
 
       <BookingModal
