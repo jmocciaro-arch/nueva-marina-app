@@ -367,7 +367,7 @@ export default function RolesPermisosPage() {
     return <div className="p-8 text-slate-400">Cargando permisos…</div>
   }
 
-  if (!can('config.roles')) {
+  if (!can('config.manage_roles')) {
     return (
       <div className="p-8">
         <Card>
@@ -376,7 +376,7 @@ export default function RolesPermisosPage() {
             <div>
               <h2 className="text-base font-semibold">Sin permisos</h2>
               <p className="text-sm text-slate-400 mt-1">
-                Necesitás el permiso <code>config.roles</code> para acceder a esta sección.
+                Necesitás el permiso <code>config.manage_roles</code> para acceder a esta sección.
               </p>
             </div>
           </div>

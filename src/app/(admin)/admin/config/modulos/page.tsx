@@ -97,7 +97,7 @@ export default function ModulosPage() {
 
   if (permsLoading) return <div className="p-8 text-slate-400">Cargando permisos…</div>
 
-  if (!can('config.modules')) {
+  if (!can('config.manage_modules')) {
     return (
       <div className="p-8">
         <Card>
@@ -106,7 +106,7 @@ export default function ModulosPage() {
             <div>
               <h2 className="text-base font-semibold">Sin permisos</h2>
               <p className="text-sm text-slate-400 mt-1">
-                Necesitás <code>config.modules</code> para gestionar módulos del club.
+                Necesitás <code>config.manage_modules</code> para gestionar módulos del club.
               </p>
             </div>
           </div>

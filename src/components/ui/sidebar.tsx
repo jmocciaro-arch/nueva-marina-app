@@ -194,9 +194,9 @@ const adminGroups: NavGroup[] = [
     label: 'Configuración',
     icon: <Settings size={16} />,
     items: [
-      { icon: <Settings size={18} />, label: 'Club', href: '/admin/config', permission: 'config.club' },
-      { icon: <Layers size={18} />, label: 'Módulos activos', href: '/admin/config/modulos', permission: 'config.modules' },
-      { icon: <ShieldCheck size={18} />, label: 'Roles & permisos', href: '/admin/config/roles', permission: 'config.roles' },
+      { icon: <Settings size={18} />, label: 'Club', href: '/admin/config', permission: 'config.manage_club' },
+      { icon: <Layers size={18} />, label: 'Módulos activos', href: '/admin/config/modulos', permission: 'config.manage_modules' },
+      { icon: <ShieldCheck size={18} />, label: 'Roles & permisos', href: '/admin/config/roles', permission: 'config.manage_roles' },
       { icon: <Lightbulb size={18} />, label: 'Innovación', href: '/admin/innovacion' },
     ],
   },
