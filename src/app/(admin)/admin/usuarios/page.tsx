@@ -192,7 +192,11 @@ export default function GestionUsuariosPage() {
     setLoading(true)
     const supabase = createClient()
     const [usersRes, membersRes] = await Promise.all([
-      supabase.from('nm_users').select('id, full_name, email, phone, country, city, is_active, last_login_at, created_at, emergency_contact, medical_notes, document_type, document_number, address, postal_code, iban, virtuagym_id, notes, dni, current_weight, avatar_url, birth_date, dni_nie, padel_position, padel_level, consent_image_use, consent_data_public, consent_accepted_at, profile_completed_at').order('created_at', { ascending: false }),
+      supabase
+        .from('nm_users')
+        .select('id, full_name, email, phone, country, city, is_active, last_login_at, created_at, emergency_contact, medical_notes, document_type, document_number, address, postal_code, iban, virtuagym_id, notes, dni, current_weight, avatar_url, birth_date, dni_nie, padel_position, padel_level, consent_image_use, consent_data_public, consent_accepted_at, profile_completed_at')
+        .order('created_at', { ascending: false })
+        .range(0, 49999),
       supabase.from('nm_club_members').select('user_id, role').eq('club_id', 1).eq('is_active', true),
     ])
     setUsers((usersRes.data ?? []) as NmUser[])
