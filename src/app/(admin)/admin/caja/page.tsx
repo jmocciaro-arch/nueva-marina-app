@@ -13,6 +13,7 @@ import { useToast } from '@/components/ui/toast'
 import { formatCurrency } from '@/lib/utils'
 import { Banknote, Plus, TrendingUp, TrendingDown, CreditCard, Wallet, ArrowRightLeft, ChevronLeft, ChevronRight, Trash2, Edit3 } from 'lucide-react'
 import type { CashEntry } from '@/types'
+import { useRealtimeRefresh } from '@/hooks/use-realtime-refresh'
 
 const PAYMENT_METHODS: Record<string, { label: string; icon: React.ReactNode }> = {
   cash: { label: 'Efectivo', icon: <Wallet size={14} /> },
@@ -65,6 +66,8 @@ export default function CajaRegistradoraPage() {
   useEffect(() => {
     loadEntries()
   }, [loadEntries])
+
+  useRealtimeRefresh(['nm_cash_register'], loadEntries)
 
   const totalIncome = entries.filter(e => e.amount > 0).reduce((s, e) => s + e.amount, 0)
   const totalExpense = entries.filter(e => e.amount < 0).reduce((s, e) => s + Math.abs(e.amount), 0)

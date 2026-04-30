@@ -25,6 +25,7 @@ import { Modal } from '@/components/ui/modal'
 import { useToast } from '@/components/ui/toast'
 import { formatCurrency } from '@/lib/utils'
 import type { Product, ProductCategory } from '@/types'
+import { useRealtimeRefresh } from '@/hooks/use-realtime-refresh'
 
 // ─── Constantes ────────────────────────────────────────────────────────────────
 
@@ -123,6 +124,13 @@ export default function GestionTiendaPage() {
     loadProducts()
     loadCategories()
   }, [loadProducts, loadCategories])
+
+  const refreshAll = useCallback(() => {
+    loadProducts()
+    loadCategories()
+  }, [loadProducts, loadCategories])
+
+  useRealtimeRefresh(['nm_products', 'nm_product_categories'], refreshAll)
 
   // ─── KPIs ─────────────────────────────────────────────────────────────────────
 

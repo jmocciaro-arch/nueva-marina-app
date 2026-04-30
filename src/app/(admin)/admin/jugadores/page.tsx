@@ -10,6 +10,7 @@ import { KpiCard } from '@/components/ui/kpi-card'
 import { Modal } from '@/components/ui/modal'
 import { useToast } from '@/components/ui/toast'
 import type { ClubMember, User, PlayerProfile } from '@/types'
+import { useRealtimeRefresh } from '@/hooks/use-realtime-refresh'
 import {
   Users,
   UserCheck,
@@ -173,6 +174,8 @@ export default function GestionJugadoresPage() {
   useEffect(() => {
     loadMembers()
   }, [loadMembers])
+
+  useRealtimeRefresh(['nm_club_members', 'nm_users', 'nm_player_profiles'], loadMembers)
 
   // ─────────────────────────────────────────────────────────────
   // KPIs derivados

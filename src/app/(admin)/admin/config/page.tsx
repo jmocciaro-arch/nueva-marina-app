@@ -174,9 +174,15 @@ export default function ConfiguracionClubPage() {
         .from('nm_clubs')
         .select('*')
         .eq('id', CLUB_ID)
-        .single()
+        .maybeSingle()
 
       if (error) throw error
+
+      if (!data) {
+        console.warn(`[config/club] No existe un club con id=${CLUB_ID}. Renderizando formulario vacío para creación inicial.`)
+        setLoading(false)
+        return
+      }
 
       const club = data as Club
 

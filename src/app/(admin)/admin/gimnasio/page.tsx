@@ -39,6 +39,7 @@ import { Select } from '@/components/ui/select'
 import { Modal } from '@/components/ui/modal'
 import { useToast } from '@/components/ui/toast'
 import { formatCurrency, formatDate } from '@/lib/utils'
+import { useRealtimeRefresh } from '@/hooks/use-realtime-refresh'
 
 // ─── Constantes ────────────────────────────────────────────────────────────────
 
@@ -372,6 +373,8 @@ export default function GestionGimnasioPage() {
   useEffect(() => {
     loadAll()
   }, [loadAll])
+
+  useRealtimeRefresh(['nm_gym_memberships', 'nm_gym_classes', 'nm_gym_sessions', 'nm_gym_access_logs'], loadAll)
 
   // Timer live para duración de personas adentro
   useEffect(() => {
