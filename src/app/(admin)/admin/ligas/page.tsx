@@ -25,6 +25,7 @@ import { Select } from '@/components/ui/select'
 import { useToast } from '@/components/ui/toast'
 import { formatCurrency, formatDate, STATUS_LABELS } from '@/lib/utils'
 import { CompetitionCoverField } from '@/components/competition-cover-field'
+import { formatsForScope, getFormat } from '@/lib/tournament-formats'
 import type { League } from '@/types'
 
 // ─── Constantes ─────────────────────────────────────────────────────────────
@@ -43,10 +44,10 @@ const STATUS_TABS: { value: LeagueStatus | 'all'; label: string }[] = [
   { value: 'finished', label: 'Finalizado' },
 ]
 
-const FORMAT_OPTIONS = [
-  { value: 'round_robin', label: 'Round Robin' },
-  { value: 'league', label: 'Liga' },
-]
+const FORMAT_OPTIONS = formatsForScope('league').map(f => ({
+  value: f.value,
+  label: f.ready ? f.label : `${f.label} (próximamente)`,
+}))
 
 const STATUS_OPTIONS: { value: LeagueStatus; label: string }[] = [
   { value: 'draft', label: 'Borrador' },
@@ -365,6 +366,9 @@ export default function GestionLigasPage() {
             onChange={e => setField('season', e.target.value)}
           />
         </div>
+
+        {/* Descripción del formato seleccionado */}
+        <FormatHint formatValue={form.format} />
 
         <div className="grid grid-cols-2 gap-3">
           <Input
@@ -687,8 +691,7 @@ function LeagueCard({ league, onEdit, onDelete }: LeagueCardProps) {
   const statusInfo = STATUS_LABELS[league.status]
   const cover = (league as unknown as Record<string, unknown>).cover_image_url as string | null | undefined
 
-  const formatLabel =
-    league.format === 'round_robin' ? 'Round Robin' : 'Liga'
+  const formatLabel = getFormat(league.format)?.label ?? league.format
 
   return (
     <Link
@@ -796,5 +799,37 @@ function LeagueCard({ league, onEdit, onDelete }: LeagueCardProps) {
       </div>
       </div>
     </Link>
+  )
+}
+
+function FormatHint({ formatValue }: { formatValue: string }) {
+  const fmt = getFormat(formatValue)
+  if (!fmt) return null
+
+  const teamsRange = fmt.maxTeams
+    ? `${fmt.minTeams}–${fmt.maxTeams} equipos`
+    : `desde ${fmt.minTeams} equipos`
+
+  return (
+    <div className={`rounded-lg p-3 text-xs border ${fmt.ready
+      ? 'bg-cyan-500/5 border-cyan-500/20 text-slate-300'
+      : 'bg-amber-500/5 border-amber-500/30 text-slate-300'}`}
+    >
+      <div className="flex items-center justify-between gap-2 mb-1">
+        <span className="font-semibold text-white">{fmt.label}</span>
+        <div className="flex items-center gap-2 shrink-0">
+          <span className="text-slate-500">{teamsRange}</span>
+          {!fmt.ready && (
+            <Badge variant="warning" className="text-[10px]">Próximamente</Badge>
+          )}
+        </div>
+      </div>
+      <p className="leading-relaxed">{fmt.description}</p>
+      {!fmt.ready && (
+        <p className="mt-2 text-amber-300/80 text-[11px]">
+          Podés crear la liga con este formato y gestionar los partidos manualmente. El generador automático todavía no está implementado.
+        </p>
+      )}
+    </div>
   )
 }
