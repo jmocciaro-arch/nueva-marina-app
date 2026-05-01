@@ -241,6 +241,9 @@ export function BookingModal({
       type: 'regular' as const,
     }
 
+    let savedBookingId: number | null = null
+    let emailEvent: 'created' | 'updated' | 'confirmed' | 'assigned' = 'created'
+
     if (isEdit && booking) {
       const { error } = await supabase
         .from('nm_bookings')
@@ -252,6 +255,11 @@ export function BookingModal({
         setLoading(false)
         return
       }
+      savedBookingId = booking.id
+      const wasPending = booking.status === 'pending'
+      const nowConfirmed = status === 'confirmed'
+      const titularChanged = (booking.booked_by ?? null) !== (bookedById ?? null)
+      emailEvent = titularChanged ? 'assigned' : (wasPending && nowConfirmed ? 'confirmed' : 'updated')
       toast('success', 'Reserva actualizada')
     } else {
       // Check availability
@@ -270,15 +278,19 @@ export function BookingModal({
         return
       }
 
-      const { error } = await supabase
+      const { data: inserted, error } = await supabase
         .from('nm_bookings')
         .insert(bookingData)
+        .select('id')
+        .single()
 
       if (error) {
         toast('error', 'Error al crear: ' + error.message)
         setLoading(false)
         return
       }
+      savedBookingId = inserted?.id ?? null
+      emailEvent = 'created'
 
       // Auto-register cash entry
       if (status === 'confirmed' && finalPrice > 0) {
@@ -293,6 +305,15 @@ export function BookingModal({
       }
 
       toast('success', 'Reserva creada')
+    }
+
+    // Notificación por email — best-effort, no bloquea el flujo
+    if (savedBookingId && bookedById) {
+      fetch('/api/bookings/notify-email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ booking_id: savedBookingId, event_type: emailEvent }),
+      }).catch(err => console.warn('[notify-email] fallo silencioso:', err))
     }
 
     setLoading(false)
@@ -325,6 +346,16 @@ export function BookingModal({
           date: booking.date,
         })
       }
+
+      // Notificación por email — best-effort
+      if (booking.booked_by) {
+        fetch('/api/bookings/notify-email', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ booking_id: booking.id, event_type: 'cancelled' }),
+        }).catch(err => console.warn('[notify-email] fallo silencioso:', err))
+      }
+
       toast('info', 'Reserva cancelada')
       onSaved()
       onClose()
