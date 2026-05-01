@@ -131,6 +131,25 @@ export const FORMATS: FormatDef[] = [
     minTeams: 6,
     ready: false,
   },
+  {
+    value: 'mixin',
+    label: 'Mixín (americano por niveles)',
+    applicableTo: 'tournament',
+    description: 'Variante social del Americano: los jugadores rotan compañero y rivales, pero el emparejamiento se hace POR NIVEL (los Nivel 4 entre sí, los Nivel 3 entre sí, etc.). Garantiza partidos parejos. Ideal para clubs con socios de niveles diversos que quieren jugar el mismo día sin desniveles.',
+    generator: 'americano',
+    minTeams: 8,
+    maxTeams: 24,
+    ready: false,
+  },
+  {
+    value: 'padel_social',
+    label: 'Pádel Social / Pádel Mix',
+    applicableTo: 'tournament',
+    description: 'Día de pádel social sin formato competitivo fijo. El admin arma partidos a mano según quién llega, mezclando parejas y niveles libremente. Ideal para eventos abiertos, clases sociales o jornadas informales del club.',
+    generator: 'manual',
+    minTeams: 4,
+    ready: true,
+  },
 
   // ═══════════ Ligas ═══════════
   {
