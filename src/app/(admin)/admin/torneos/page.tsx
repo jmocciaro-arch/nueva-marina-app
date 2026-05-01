@@ -316,14 +316,30 @@ export default function GestionTorneosPage() {
     setter(prev => ({ ...prev, [key]: val }))
   }
 
+  // Cuando cambia el formato, también ajustamos min/max equipos al rango del formato.
+  function applyFormatChange(
+    setter: React.Dispatch<React.SetStateAction<TournamentForm>>,
+    newFormat: string,
+  ) {
+    const fmt = getFormatFrom(formats, newFormat)
+    setter(prev => ({
+      ...prev,
+      format: newFormat,
+      min_teams: fmt ? String(fmt.minTeams) : prev.min_teams,
+      max_teams: fmt?.maxTeams ? String(fmt.maxTeams) : prev.max_teams,
+    }))
+  }
+
   // ─── render formulario ───────────────────────────────
   function TournamentFormFields({
     form,
     onChange,
+    onFormatChange,
     showStatus,
   }: {
     form: TournamentForm
     onChange: (key: keyof TournamentForm, val: string) => void
+    onFormatChange?: (newFormat: string) => void
     showStatus: boolean
   }) {
     return (
@@ -342,7 +358,10 @@ export default function GestionTorneosPage() {
             label="Formato"
             options={FORMAT_OPTIONS}
             value={form.format}
-            onChange={e => onChange('format', e.target.value)}
+            onChange={e => {
+              if (onFormatChange) onFormatChange(e.target.value)
+              else onChange('format', e.target.value)
+            }}
           />
           {showStatus && (
             <Select
@@ -625,6 +644,7 @@ export default function GestionTorneosPage() {
         <TournamentFormFields
           form={newForm}
           onChange={(key, val) => setField(setNewForm, key, val)}
+          onFormatChange={f => applyFormatChange(setNewForm, f)}
           showStatus={false}
         />
       </Modal>
@@ -671,6 +691,7 @@ export default function GestionTorneosPage() {
         <TournamentFormFields
           form={editForm}
           onChange={(key, val) => setField(setEditForm, key, val)}
+          onFormatChange={f => applyFormatChange(setEditForm, f)}
           showStatus={true}
         />
       </Modal>
