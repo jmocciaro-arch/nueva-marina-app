@@ -13,17 +13,13 @@ import { KpiCard } from '@/components/ui/kpi-card'
 import { useToast } from '@/components/ui/toast'
 import { formatCurrency, formatDate, STATUS_LABELS } from '@/lib/utils'
 import { CompetitionCoverField } from '@/components/competition-cover-field'
-import { formatsForScope, getFormat } from '@/lib/tournament-formats'
+import { useGameFormats } from '@/hooks/use-game-formats'
+import { getFormatFrom } from '@/lib/tournament-formats'
 import type { Tournament } from '@/types'
 
 // ─── constantes ──────────────────────────────────────────────
 const CLUB_ID = 1
 const SPORT_ID = 1
-
-const FORMAT_OPTIONS = formatsForScope('tournament').map(f => ({
-  value: f.value,
-  label: f.ready ? f.label : `${f.label} (próximamente)`,
-}))
 
 const STATUS_OPTIONS = [
   { value: 'draft', label: 'Borrador' },
@@ -59,9 +55,6 @@ function formatLabel(status: string): string {
   return STATUS_LABELS[status]?.label ?? status
 }
 
-function formatLabel2(format: string): string {
-  return getFormat(format)?.label ?? format
-}
 
 // ─── form state ──────────────────────────────────────────────
 interface TournamentForm {
@@ -118,6 +111,13 @@ function tournamentToForm(t: Tournament): TournamentForm {
 export default function GestionTorneosPage() {
   const { toast } = useToast()
   const supabase = createClient()
+
+  const { formats } = useGameFormats('tournament')
+  const FORMAT_OPTIONS = formats.map(f => ({
+    value: f.value,
+    label: f.ready ? f.label : `${f.label} (próximamente)`,
+  }))
+  const formatLabel2 = (format: string) => getFormatFrom(formats, format)?.label ?? format
 
   const [tournaments, setTournaments] = useState<Tournament[]>([])
   const [teamCounts, setTeamCounts] = useState<Record<number, number>>({})
@@ -356,7 +356,7 @@ export default function GestionTorneosPage() {
         </div>
 
         {/* Descripción del formato seleccionado */}
-        <FormatHint formatValue={form.format} />
+        <FormatHint formatValue={form.format} formats={formats} />
 
         <div className="grid grid-cols-2 gap-3">
           <Input
@@ -678,8 +678,8 @@ export default function GestionTorneosPage() {
   )
 }
 
-function FormatHint({ formatValue }: { formatValue: string }) {
-  const fmt = getFormat(formatValue)
+function FormatHint({ formatValue, formats }: { formatValue: string; formats: import('@/lib/tournament-formats').FormatDef[] }) {
+  const fmt = getFormatFrom(formats, formatValue)
   if (!fmt) return null
 
   const teamsRange = fmt.maxTeams

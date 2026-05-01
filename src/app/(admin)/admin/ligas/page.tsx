@@ -25,7 +25,8 @@ import { Select } from '@/components/ui/select'
 import { useToast } from '@/components/ui/toast'
 import { formatCurrency, formatDate, STATUS_LABELS } from '@/lib/utils'
 import { CompetitionCoverField } from '@/components/competition-cover-field'
-import { formatsForScope, getFormat } from '@/lib/tournament-formats'
+import { useGameFormats } from '@/hooks/use-game-formats'
+import { getFormatFrom, type FormatDef } from '@/lib/tournament-formats'
 import type { League } from '@/types'
 
 // ─── Constantes ─────────────────────────────────────────────────────────────
@@ -44,10 +45,6 @@ const STATUS_TABS: { value: LeagueStatus | 'all'; label: string }[] = [
   { value: 'finished', label: 'Finalizado' },
 ]
 
-const FORMAT_OPTIONS = formatsForScope('league').map(f => ({
-  value: f.value,
-  label: f.ready ? f.label : `${f.label} (próximamente)`,
-}))
 
 const STATUS_OPTIONS: { value: LeagueStatus; label: string }[] = [
   { value: 'draft', label: 'Borrador' },
@@ -141,6 +138,13 @@ function leagueToForm(league: League): LeagueForm {
 
 export default function GestionLigasPage() {
   const { toast } = useToast()
+
+  const { formats } = useGameFormats('league')
+  const FORMAT_OPTIONS = formats.map(f => ({
+    value: f.value,
+    label: f.ready ? f.label : `${f.label} (próximamente)`,
+  }))
+
   const [leagues, setLeagues] = useState<League[]>([])
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState<LeagueStatus | 'all'>('all')
@@ -368,7 +372,7 @@ export default function GestionLigasPage() {
         </div>
 
         {/* Descripción del formato seleccionado */}
-        <FormatHint formatValue={form.format} />
+        <FormatHint formatValue={form.format} formats={formats} />
 
         <div className="grid grid-cols-2 gap-3">
           <Input
@@ -601,6 +605,7 @@ export default function GestionLigasPage() {
             <LeagueCard
               key={league.id}
               league={league}
+              formats={formats}
               onEdit={() => openEdit(league)}
               onDelete={() => setDeletingLeague(league)}
             />
@@ -683,15 +688,16 @@ export default function GestionLigasPage() {
 
 interface LeagueCardProps {
   league: League
+  formats: FormatDef[]
   onEdit: () => void
   onDelete: () => void
 }
 
-function LeagueCard({ league, onEdit, onDelete }: LeagueCardProps) {
+function LeagueCard({ league, formats, onEdit, onDelete }: LeagueCardProps) {
   const statusInfo = STATUS_LABELS[league.status]
   const cover = (league as unknown as Record<string, unknown>).cover_image_url as string | null | undefined
 
-  const formatLabel = getFormat(league.format)?.label ?? league.format
+  const formatLabel = getFormatFrom(formats, league.format)?.label ?? league.format
 
   return (
     <Link
@@ -802,8 +808,8 @@ function LeagueCard({ league, onEdit, onDelete }: LeagueCardProps) {
   )
 }
 
-function FormatHint({ formatValue }: { formatValue: string }) {
-  const fmt = getFormat(formatValue)
+function FormatHint({ formatValue, formats }: { formatValue: string; formats: FormatDef[] }) {
+  const fmt = getFormatFrom(formats, formatValue)
   if (!fmt) return null
 
   const teamsRange = fmt.maxTeams
