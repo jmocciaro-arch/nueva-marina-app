@@ -258,7 +258,7 @@ export default function SocioFichaPage() {
       </div>
 
       {/* Contenido del tab */}
-      {tab === 'datos' && <TabDatos user={user} />}
+      {tab === 'datos' && <TabDatos user={user} onReload={loadAll} toast={toast} />}
       {tab === 'fisico' && <TabFisico userId={user.id} measurements={measurements} onReload={loadAll} toast={toast} />}
       {tab === 'objetivos' && <TabObjetivos userId={user.id} goals={goals} onReload={loadAll} toast={toast} />}
       {tab === 'salud' && <TabSalud userId={user.id} conditions={health} onReload={loadAll} toast={toast} />}
@@ -282,20 +282,159 @@ function MiniMetric({ label, value }: { label: string; value: string }) {
 // ──────────────────────────────────────────────────────────────
 // Tab: Datos
 // ──────────────────────────────────────────────────────────────
-function TabDatos({ user }: { user: UserData }) {
+function TabDatos({ user, onReload, toast }: {
+  user: UserData
+  onReload: () => void
+  toast: (kind: 'success' | 'error' | 'info' | 'warning', msg: string) => void
+}) {
+  const [editing, setEditing] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [form, setForm] = useState({
+    full_name: user.full_name ?? '',
+    phone: user.phone ?? '',
+    dni_nie: user.dni_nie ?? '',
+    birth_date: user.birth_date ?? '',
+    city: user.city ?? '',
+    emergency_contact: user.emergency_contact ?? '',
+    medical_notes: user.medical_notes ?? '',
+    virtuagym_id: user.virtuagym_id ?? '',
+    notes: user.notes ?? '',
+  })
+
+  // Re-sincronizar cuando cambia el user (después de guardar y reload)
+  useEffect(() => {
+    setForm({
+      full_name: user.full_name ?? '',
+      phone: user.phone ?? '',
+      dni_nie: user.dni_nie ?? '',
+      birth_date: user.birth_date ?? '',
+      city: user.city ?? '',
+      emergency_contact: user.emergency_contact ?? '',
+      medical_notes: user.medical_notes ?? '',
+      virtuagym_id: user.virtuagym_id ?? '',
+      notes: user.notes ?? '',
+    })
+  }, [user])
+
+  async function handleSave() {
+    setSaving(true)
+    const supabase = createClient()
+    const payload = {
+      full_name: form.full_name.trim() || null,
+      phone: form.phone.trim() || null,
+      dni_nie: form.dni_nie.trim() || null,
+      birth_date: form.birth_date || null,
+      city: form.city.trim() || null,
+      emergency_contact: form.emergency_contact.trim() || null,
+      medical_notes: form.medical_notes.trim() || null,
+      virtuagym_id: form.virtuagym_id.trim() || null,
+      notes: form.notes.trim() || null,
+    }
+    const { error } = await supabase.from('nm_users').update(payload).eq('id', user.id)
+    setSaving(false)
+    if (error) {
+      toast('error', 'Error al guardar: ' + error.message)
+      return
+    }
+    toast('success', 'Datos del socio actualizados')
+    setEditing(false)
+    onReload()
+  }
+
+  function handleCancel() {
+    setForm({
+      full_name: user.full_name ?? '',
+      phone: user.phone ?? '',
+      dni_nie: user.dni_nie ?? '',
+      birth_date: user.birth_date ?? '',
+      city: user.city ?? '',
+      emergency_contact: user.emergency_contact ?? '',
+      medical_notes: user.medical_notes ?? '',
+      virtuagym_id: user.virtuagym_id ?? '',
+      notes: user.notes ?? '',
+    })
+    setEditing(false)
+  }
+
+  if (!editing) {
+    return (
+      <Card className="p-5 space-y-3">
+        <div className="flex items-center justify-between mb-2">
+          <h3 className="text-sm font-semibold text-white">Información personal</h3>
+          <Button size="sm" variant="secondary" onClick={() => setEditing(true)}>
+            Editar
+          </Button>
+        </div>
+        <Row label="Nombre" value={user.full_name} />
+        <Row label="Email" value={user.email} />
+        <Row label="Teléfono" value={user.phone} />
+        <Row label="DNI/NIE" value={user.dni_nie} />
+        <Row label="Fecha de nacimiento" value={user.birth_date ? formatDate(user.birth_date) : null} />
+        <Row label="Zona / Localidad" value={user.city} />
+        <Row label="Contacto de emergencia" value={user.emergency_contact} />
+        <Row label="Notas médicas" value={user.medical_notes} />
+        <Row label="ID Virtuagym" value={user.virtuagym_id} mono />
+        <Row label="Notas" value={user.notes} />
+      </Card>
+    )
+  }
+
   return (
     <Card className="p-5 space-y-3">
-      <h3 className="text-sm font-semibold text-white mb-2">Información personal</h3>
-      <Row label="Nombre" value={user.full_name} />
-      <Row label="Email" value={user.email} />
-      <Row label="Teléfono" value={user.phone} />
-      <Row label="DNI/NIE" value={user.dni_nie} />
-      <Row label="Fecha de nacimiento" value={user.birth_date ? formatDate(user.birth_date) : null} />
-      <Row label="Zona / Localidad" value={user.city} />
-      <Row label="Contacto de emergencia" value={user.emergency_contact} />
-      <Row label="Notas médicas" value={user.medical_notes} />
-      <Row label="ID Virtuagym" value={user.virtuagym_id} mono />
-      <Row label="Notas" value={user.notes} />
+      <div className="flex items-center justify-between mb-2">
+        <h3 className="text-sm font-semibold text-white">Editar información personal</h3>
+        <div className="flex items-center gap-2">
+          <Button size="sm" variant="ghost" onClick={handleCancel} disabled={saving}>
+            Cancelar
+          </Button>
+          <Button size="sm" onClick={handleSave} loading={saving}>
+            Guardar
+          </Button>
+        </div>
+      </div>
+
+      <p className="text-xs text-slate-500 -mt-1">El email no se puede editar desde acá (está atado al login del usuario).</p>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
+        <Input label="Nombre completo" value={form.full_name}
+          onChange={e => setForm({ ...form, full_name: e.target.value })} />
+        <Input label="Email" value={user.email} disabled />
+        <Input label="Teléfono" value={form.phone}
+          onChange={e => setForm({ ...form, phone: e.target.value })} placeholder="+34 600 000 000" />
+        <Input label="DNI / NIE" value={form.dni_nie}
+          onChange={e => setForm({ ...form, dni_nie: e.target.value })} />
+        <Input label="Fecha de nacimiento" type="date" value={form.birth_date}
+          onChange={e => setForm({ ...form, birth_date: e.target.value })} />
+        <Input label="Zona / Localidad" value={form.city}
+          onChange={e => setForm({ ...form, city: e.target.value })} />
+        <Input label="Contacto de emergencia" value={form.emergency_contact}
+          onChange={e => setForm({ ...form, emergency_contact: e.target.value })}
+          placeholder="Nombre y teléfono" />
+        <Input label="ID Virtuagym" value={form.virtuagym_id}
+          onChange={e => setForm({ ...form, virtuagym_id: e.target.value })} />
+      </div>
+
+      <div className="space-y-1 pt-2">
+        <label className="block text-xs font-medium text-slate-400">Notas médicas</label>
+        <textarea
+          value={form.medical_notes}
+          onChange={e => setForm({ ...form, medical_notes: e.target.value })}
+          rows={2}
+          className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-500 focus:outline-none focus:border-cyan-500"
+          placeholder="Alergias, lesiones, medicación..."
+        />
+      </div>
+
+      <div className="space-y-1">
+        <label className="block text-xs font-medium text-slate-400">Notas internas</label>
+        <textarea
+          value={form.notes}
+          onChange={e => setForm({ ...form, notes: e.target.value })}
+          rows={2}
+          className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-500 focus:outline-none focus:border-cyan-500"
+          placeholder="Comentarios del staff sobre el socio..."
+        />
+      </div>
     </Card>
   )
 }

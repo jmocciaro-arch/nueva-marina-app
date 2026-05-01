@@ -1,203 +1,186 @@
 /**
- * Catálogo central de formatos de competición.
+ * Catálogo de formatos de competición.
  *
- * Lo usan tanto torneos (1-3 días) como ligas (varias semanas).
+ * Los formatos viven en la tabla `nm_game_formats` y son editables desde
+ * `/admin/config/formatos`. Este archivo expone:
  *
- * - `value`: identificador interno (no cambiar después de poner en producción).
- * - `label`: cómo se ve en pantalla.
- * - `applicableTo`: si aparece en torneos, ligas o en ambos.
- * - `description`: explicación corta para mostrar al admin.
- * - `generator`: cuál motor de fixture genera los partidos. Si es `manual`,
- *   el admin gestiona los partidos a mano (todavía no implementado).
- * - `minTeams`/`maxTeams`: rango sugerido (no es validación dura).
- * - `usesGroups`: si arma fase de grupos antes de eliminación.
- * - `defaultGroupSize`: tamaño por grupo (default 4).
+ *  - Tipos TypeScript del modelo (FormatDef).
+ *  - Helpers para fetchear desde Supabase.
+ *  - Un FALLBACK hardcoded que se usa solo si la query a BD falla
+ *    (para que la UI nunca quede sin opciones).
  */
 
+import type { SupabaseClient } from '@supabase/supabase-js'
+
 export type FormatGenerator =
-  | 'round_robin'         // todos contra todos en 1 grupo
-  | 'single_elimination'  // bracket clásico (ya implementado)
-  | 'double_elimination'  // bracket con repechaje
-  | 'pool_bracket'        // grupos + eliminación
-  | 'americano'           // rotación de parejas individual
-  | 'mexicano'            // pairing dinámico por puntos
-  | 'king_of_court'       // jerarquía de pistas, ganador sube
-  | 'swiss'               // pairing por puntaje similar
-  | 'box_league'          // divisiones con ascenso/descenso
-  | 'league_playoffs'     // liga regular + playoffs
-  | 'manual'              // sin generador, partidos a mano
+  | 'round_robin'
+  | 'single_elimination'
+  | 'double_elimination'
+  | 'pool_bracket'
+  | 'americano'
+  | 'mexicano'
+  | 'king_of_court'
+  | 'swiss'
+  | 'box_league'
+  | 'league_playoffs'
+  | 'manual'
 
 export type FormatScope = 'tournament' | 'league' | 'both'
 
 export interface FormatDef {
-  value: string
+  id?: number
+  value: string         // = slug en BD
   label: string
-  applicableTo: FormatScope
   description: string
+  applicableTo: FormatScope
   generator: FormatGenerator
   minTeams: number
   maxTeams?: number
   usesGroups?: boolean
   defaultGroupSize?: number
-  /** Si true, ya está implementado y se puede usar al 100%. Si false, hay que gestionar partidos manualmente. */
   ready: boolean
+  isSystem?: boolean
+  isActive?: boolean
+  sortOrder?: number
 }
 
-export const FORMATS: FormatDef[] = [
-  // ═══════════ Torneos ═══════════
-  {
-    value: 'eliminacion_directa',
-    label: 'Eliminación Directa',
-    applicableTo: 'tournament',
-    description: 'Bracket clásico tipo Wimbledon: perdés y quedás afuera. Si hay un número impar o no es potencia de 2, se asignan BYEs a los cabezas de serie.',
-    generator: 'single_elimination',
-    minTeams: 2,
-    ready: true,
-  },
-  {
-    value: 'doble_eliminacion',
-    label: 'Doble Eliminación',
-    applicableTo: 'tournament',
-    description: 'Bracket con repechaje: tenés dos vidas. Los que pierden en el cuadro principal pasan al cuadro de consolación y siguen compitiendo.',
-    generator: 'double_elimination',
-    minTeams: 4,
-    ready: false,
-  },
-  {
-    value: 'round_robin',
-    label: 'Round Robin (todos contra todos)',
-    applicableTo: 'both',
-    description: 'Cada equipo juega contra todos los demás una vez. Gana el que más puntos suma al final. Ideal para 4 a 8 equipos.',
-    generator: 'round_robin',
-    minTeams: 3,
-    maxTeams: 12,
-    ready: true,
-  },
-  {
-    value: 'pool_bracket',
-    label: 'Pool + Bracket (grupos + eliminación)',
-    applicableTo: 'tournament',
-    description: 'Fase de grupos clasificatoria (todos contra todos en grupos de 4). Los 2 mejores de cada grupo pasan a un bracket de eliminación directa.',
-    generator: 'pool_bracket',
-    minTeams: 8,
-    usesGroups: true,
-    defaultGroupSize: 4,
-    ready: true,
-  },
-  {
-    value: 'premier',
-    label: 'Premier',
-    applicableTo: 'tournament',
-    description: 'Formato profesional tipo Premier Padel: cuadro principal con previa clasificatoria. Requiere armar los partidos manualmente por ahora.',
-    generator: 'manual',
-    minTeams: 8,
-    ready: false,
-  },
-  {
-    value: 'americano',
-    label: 'Americano (rotación individual)',
-    applicableTo: 'tournament',
-    description: 'Inscripción individual. Los jugadores rotan de compañero y rivales en cada partido. Se cuentan puntos personales (no por pareja). Ideal para "días de pádel" de 8-16 jugadores.',
-    generator: 'americano',
-    minTeams: 4,
-    maxTeams: 24,
-    ready: false,
-  },
-  {
-    value: 'mexicano',
-    label: 'Mexicano (pairing por ranking)',
-    applicableTo: 'tournament',
-    description: 'Variación del Americano. Ronda 1 aleatoria; en las siguientes, los jugadores se emparejan según los puntos acumulados (los punteros entre sí). Más competitivo que el Americano clásico.',
-    generator: 'mexicano',
-    minTeams: 4,
-    maxTeams: 24,
-    ready: false,
-  },
-  {
-    value: 'king_of_court',
-    label: 'King of the Court / El Pozo',
-    applicableTo: 'tournament',
-    description: 'Pistas con jerarquía (1 = la más alta). Parejas fijas. Partidos por tiempo. Al terminar, el ganador sube a la pista superior y el perdedor baja. Llena las pistas todo el día.',
-    generator: 'king_of_court',
-    minTeams: 4,
-    ready: false,
-  },
-  {
-    value: 'suizo',
-    label: 'Sistema Suizo',
-    applicableTo: 'tournament',
-    description: 'En cada ronda los equipos se enfrentan con otros de puntaje similar, evitando rematches. Funciona muy bien con muchos equipos en pocas rondas (ej: 16 equipos en 4-5 rondas).',
-    generator: 'swiss',
-    minTeams: 6,
-    ready: false,
-  },
-  {
-    value: 'mixin',
-    label: 'Mixín (americano por niveles)',
-    applicableTo: 'tournament',
-    description: 'Variante social del Americano: los jugadores rotan compañero y rivales, pero el emparejamiento se hace POR NIVEL (los Nivel 4 entre sí, los Nivel 3 entre sí, etc.). Garantiza partidos parejos. Ideal para clubs con socios de niveles diversos que quieren jugar el mismo día sin desniveles.',
-    generator: 'americano',
-    minTeams: 8,
-    maxTeams: 24,
-    ready: false,
-  },
-  {
-    value: 'padel_social',
-    label: 'Pádel Social / Pádel Mix',
-    applicableTo: 'tournament',
-    description: 'Día de pádel social sin formato competitivo fijo. El admin arma partidos a mano según quién llega, mezclando parejas y niveles libremente. Ideal para eventos abiertos, clases sociales o jornadas informales del club.',
-    generator: 'manual',
-    minTeams: 4,
-    ready: true,
-  },
+interface DbRow {
+  id: number
+  slug: string
+  label: string
+  description: string | null
+  applicable_to: string
+  generator: string
+  min_teams: number
+  max_teams: number | null
+  uses_groups: boolean
+  default_group_size: number | null
+  ready: boolean
+  is_system: boolean
+  is_active: boolean
+  sort_order: number
+}
 
-  // ═══════════ Ligas ═══════════
-  {
-    value: 'league',
-    label: 'Liga regular',
-    applicableTo: 'league',
-    description: 'Todos contra todos durante varias semanas. Los partidos se distribuyen en jornadas. Gana el que más puntos suma al final de la temporada.',
-    generator: 'round_robin',
-    minTeams: 4,
-    ready: true,
-  },
-  {
-    value: 'league_playoffs',
-    label: 'Liga + Playoffs',
-    applicableTo: 'league',
-    description: 'Liga regular + eliminación directa al final con los X mejores. La temporada regular define los seeds del bracket.',
-    generator: 'league_playoffs',
-    minTeams: 6,
-    ready: false,
-  },
-  {
-    value: 'box_league',
-    label: 'Box League / Cajas',
-    applicableTo: 'league',
-    description: 'Equipos divididos en "cajas" o divisiones por nivel (1ª, 2ª, 3ª, etc.). Round Robin dentro de cada caja. Al final, los mejores ascienden y los últimos descienden.',
-    generator: 'box_league',
-    minTeams: 6,
-    usesGroups: true,
-    defaultGroupSize: 4,
-    ready: false,
-  },
-  {
-    value: 'mexicano_jornadas',
-    label: 'Mexicano por jornadas',
-    applicableTo: 'league',
-    description: 'En cada jornada se rearman parejas según el ranking acumulado. Variante de liga social donde los compañeros cambian semana a semana.',
-    generator: 'mexicano',
-    minTeams: 8,
-    ready: false,
-  },
+function rowToFormat(row: DbRow): FormatDef {
+  return {
+    id: row.id,
+    value: row.slug,
+    label: row.label,
+    description: row.description ?? '',
+    applicableTo: (row.applicable_to as FormatScope) || 'tournament',
+    generator: (row.generator as FormatGenerator) || 'manual',
+    minTeams: row.min_teams,
+    maxTeams: row.max_teams ?? undefined,
+    usesGroups: row.uses_groups,
+    defaultGroupSize: row.default_group_size ?? 4,
+    ready: row.ready,
+    isSystem: row.is_system,
+    isActive: row.is_active,
+    sortOrder: row.sort_order,
+  }
+}
+
+export async function fetchFormats(supabase: SupabaseClient): Promise<FormatDef[]> {
+  const { data, error } = await supabase
+    .from('nm_game_formats')
+    .select('*')
+    .eq('is_active', true)
+    .order('sort_order', { ascending: true })
+
+  if (error || !data) {
+    console.warn('[tournament-formats] usando fallback:', error?.message)
+    return FALLBACK_FORMATS
+  }
+  return (data as DbRow[]).map(rowToFormat)
+}
+
+export async function fetchAllFormats(supabase: SupabaseClient): Promise<FormatDef[]> {
+  // Igual que fetchFormats pero incluye los is_active=false (para la pantalla admin)
+  const { data, error } = await supabase
+    .from('nm_game_formats')
+    .select('*')
+    .order('sort_order', { ascending: true })
+
+  if (error || !data) {
+    console.warn('[tournament-formats] fetchAll fallback:', error?.message)
+    return FALLBACK_FORMATS
+  }
+  return (data as DbRow[]).map(rowToFormat)
+}
+
+// ── Helpers locales sobre un array ──────────────────────────────────────────
+
+export function getFormatFrom(formats: FormatDef[], value: string): FormatDef | undefined {
+  return formats.find(f => f.value === value)
+}
+
+export function formatsForScopeFrom(formats: FormatDef[], scope: 'tournament' | 'league'): FormatDef[] {
+  return formats.filter(f => f.applicableTo === scope || f.applicableTo === 'both')
+}
+
+// ── Fallback hardcoded (espejo del seed de la migración) ────────────────────
+// Si la BD no responde, mantenemos la app funcionando con estos.
+
+export const FALLBACK_FORMATS: FormatDef[] = [
+  { value: 'eliminacion_directa', label: 'Eliminación Directa', applicableTo: 'tournament',
+    description: 'Bracket clásico tipo Wimbledon: perdés y quedás afuera.',
+    generator: 'single_elimination', minTeams: 2, ready: true, sortOrder: 10 },
+  { value: 'doble_eliminacion', label: 'Doble Eliminación', applicableTo: 'tournament',
+    description: 'Bracket con repechaje: tenés dos vidas.',
+    generator: 'double_elimination', minTeams: 4, ready: false, sortOrder: 20 },
+  { value: 'round_robin', label: 'Round Robin (todos contra todos)', applicableTo: 'both',
+    description: 'Cada equipo juega contra todos los demás una vez.',
+    generator: 'round_robin', minTeams: 3, maxTeams: 12, ready: true, sortOrder: 30 },
+  { value: 'pool_bracket', label: 'Pool + Bracket', applicableTo: 'tournament',
+    description: 'Fase de grupos + eliminación directa.',
+    generator: 'pool_bracket', minTeams: 8, usesGroups: true, defaultGroupSize: 4, ready: true, sortOrder: 40 },
+  { value: 'premier', label: 'Premier', applicableTo: 'tournament',
+    description: 'Formato profesional tipo Premier Padel.',
+    generator: 'manual', minTeams: 8, ready: false, sortOrder: 50 },
+  { value: 'americano', label: 'Americano (rotación individual)', applicableTo: 'tournament',
+    description: 'Inscripción individual con rotación de parejas y rivales.',
+    generator: 'americano', minTeams: 4, maxTeams: 24, ready: false, sortOrder: 60 },
+  { value: 'mexicano', label: 'Mexicano (pairing por ranking)', applicableTo: 'tournament',
+    description: 'Variante del Americano con emparejamiento por puntos.',
+    generator: 'mexicano', minTeams: 4, maxTeams: 24, ready: false, sortOrder: 70 },
+  { value: 'mixin', label: 'Mixín (americano por niveles)', applicableTo: 'tournament',
+    description: 'Americano con emparejamiento por nivel del jugador.',
+    generator: 'americano', minTeams: 8, maxTeams: 24, ready: false, sortOrder: 80 },
+  { value: 'king_of_court', label: 'King of the Court / El Pozo', applicableTo: 'tournament',
+    description: 'Pistas con jerarquía. Ganador sube, perdedor baja.',
+    generator: 'king_of_court', minTeams: 4, ready: false, sortOrder: 90 },
+  { value: 'suizo', label: 'Sistema Suizo', applicableTo: 'tournament',
+    description: 'Pairing por puntaje similar, sin rematches.',
+    generator: 'swiss', minTeams: 6, ready: false, sortOrder: 100 },
+  { value: 'padel_social', label: 'Pádel Social / Pádel Mix', applicableTo: 'tournament',
+    description: 'Día social sin formato fijo, partidos a mano.',
+    generator: 'manual', minTeams: 4, ready: true, sortOrder: 110 },
+  { value: 'league', label: 'Liga regular', applicableTo: 'league',
+    description: 'Todos contra todos en jornadas semanales.',
+    generator: 'round_robin', minTeams: 4, ready: true, sortOrder: 200 },
+  { value: 'league_playoffs', label: 'Liga + Playoffs', applicableTo: 'league',
+    description: 'Liga regular + bracket final con los mejores.',
+    generator: 'league_playoffs', minTeams: 6, ready: false, sortOrder: 210 },
+  { value: 'box_league', label: 'Box League / Cajas', applicableTo: 'league',
+    description: 'Equipos divididos en cajas con ascenso y descenso.',
+    generator: 'box_league', minTeams: 6, usesGroups: true, defaultGroupSize: 4, ready: false, sortOrder: 220 },
+  { value: 'mexicano_jornadas', label: 'Mexicano por jornadas', applicableTo: 'league',
+    description: 'Mexicano repartido en jornadas semanales.',
+    generator: 'mexicano', minTeams: 8, ready: false, sortOrder: 230 },
 ]
 
+// ── Aliases sync para compat hacia atrás (usan el fallback) ─────────────────
+// Las pantallas que usan estos pueden migrar al hook useGameFormats() cuando
+// quieran reflejar los cambios del admin en vivo.
+
+export const FORMATS = FALLBACK_FORMATS
+
 export function getFormat(value: string): FormatDef | undefined {
-  return FORMATS.find(f => f.value === value)
+  return getFormatFrom(FALLBACK_FORMATS, value)
 }
 
 export function formatsForScope(scope: 'tournament' | 'league'): FormatDef[] {
-  return FORMATS.filter(f => f.applicableTo === scope || f.applicableTo === 'both')
+  return formatsForScopeFrom(FALLBACK_FORMATS, scope)
 }
 
 export function isFormatReady(value: string): boolean {
