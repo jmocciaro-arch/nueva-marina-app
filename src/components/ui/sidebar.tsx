@@ -134,6 +134,7 @@ const adminGroups: NavGroup[] = [
     icon: <DoorOpen size={16} />,
     items: [
       { icon: <DoorOpen size={18} />, label: 'Control de acceso', href: '/admin/accesos', permission: 'access.logs' },
+      { icon: <QrCode size={18} />, label: 'Escanear (QR/NFC)', href: '/admin/escanear', permission: 'access.logs' },
     ],
   },
   {
