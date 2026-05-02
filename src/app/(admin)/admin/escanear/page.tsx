@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState, useCallback } from 'react'
+import jsQR from 'jsqr'
 import { createClient } from '@/lib/supabase/client'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -23,7 +24,7 @@ const SCAN_DEBOUNCE_MS = 2500
 
 export default function EscanearPage() {
   const videoRef = useRef<HTMLVideoElement>(null)
-  const detectorRef = useRef<unknown>(null)
+  const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const lastScanRef = useRef<{ value: string; at: number }>({ value: '', at: 0 })
   const rafRef = useRef<number | null>(null)
   const streamRef = useRef<MediaStream | null>(null)
@@ -35,7 +36,7 @@ export default function EscanearPage() {
   const [busy, setBusy] = useState(false)
   const [nfcSupported, setNfcSupported] = useState(false)
   const [nfcActive, setNfcActive] = useState(false)
-  const [barcodeApiSupported, setBarcodeApiSupported] = useState<boolean | null>(null)
+  const [cameraSupported, setCameraSupported] = useState<boolean | null>(null)
 
   // Estado del modo "Vincular tag"
   const [socios, setSocios] = useState<SocioLite[]>([])
@@ -44,7 +45,7 @@ export default function EscanearPage() {
 
   // Detectar capacidades del navegador
   useEffect(() => {
-    setBarcodeApiSupported('BarcodeDetector' in window)
+    setCameraSupported(!!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia))
     setNfcSupported('NDEFReader' in window)
   }, [])
 
@@ -133,31 +134,51 @@ export default function EscanearPage() {
     }
   }, [selectedSocio, showResult])
 
-  // Loop de detección de QR usando BarcodeDetector
-  const detectLoop = useCallback(async () => {
+  // Loop de detección de QR usando jsQR (funciona en cualquier navegador)
+  const detectLoop = useCallback(() => {
     const video = videoRef.current
-    const detector = detectorRef.current as { detect: (v: HTMLVideoElement) => Promise<Array<{ rawValue: string }>> } | null
-    if (!video || !detector || video.readyState < 2) {
+    if (!video || video.readyState < 2) {
       rafRef.current = requestAnimationFrame(detectLoop)
       return
     }
     try {
-      const codes = await detector.detect(video)
-      if (codes.length > 0) {
-        const value = codes[0].rawValue
+      // Reusar el canvas oculto para sacar frames del video
+      let canvas = canvasRef.current
+      if (!canvas) {
+        canvas = document.createElement('canvas')
+        canvasRef.current = canvas
+      }
+      const w = video.videoWidth
+      const h = video.videoHeight
+      if (w === 0 || h === 0) {
+        rafRef.current = requestAnimationFrame(detectLoop)
+        return
+      }
+      canvas.width = w
+      canvas.height = h
+      const ctx = canvas.getContext('2d', { willReadFrequently: true })
+      if (!ctx) {
+        rafRef.current = requestAnimationFrame(detectLoop)
+        return
+      }
+      ctx.drawImage(video, 0, 0, w, h)
+      const imageData = ctx.getImageData(0, 0, w, h)
+      const code = jsQR(imageData.data, w, h, { inversionAttempts: 'dontInvert' })
+
+      if (code && code.data) {
+        const value = code.data
         const now = Date.now()
         if (value !== lastScanRef.current.value || now - lastScanRef.current.at > SCAN_DEBOUNCE_MS) {
           lastScanRef.current = { value, at: now }
           if (mode === 'validate') {
-            await validate(value, 'qr')
+            void validate(value, 'qr')
           } else {
-            // En modo vincular ignoramos QR (un QR no es un tag NFC)
             showResult({ ok: false, title: 'IGNORADO', subtitle: 'En modo vincular se usa solo NFC, no QR' })
           }
         }
       }
     } catch {
-      /* detect() falla a veces durante transiciones */
+      /* fallos puntuales del decoder, no romper el loop */
     }
     rafRef.current = requestAnimationFrame(detectLoop)
   }, [mode, validate, showResult])
@@ -165,8 +186,8 @@ export default function EscanearPage() {
   // Encender cámara
   const startCamera = useCallback(async () => {
     setError(null)
-    if (!barcodeApiSupported) {
-      setError('Tu navegador no soporta el escáner nativo. Usá Chrome, Edge o Safari 17+.')
+    if (!cameraSupported) {
+      setError('Tu navegador no permite acceder a la cámara. Probá Chrome o Edge actualizado.')
       return
     }
     try {
@@ -179,15 +200,18 @@ export default function EscanearPage() {
         videoRef.current.srcObject = stream
         await videoRef.current.play()
       }
-      // @ts-expect-error BarcodeDetector no está en typings DOM estándar
-      detectorRef.current = new window.BarcodeDetector({ formats: ['qr_code'] })
       setCameraOn(true)
       detectLoop()
     } catch (e) {
-      const msg = e instanceof Error ? e.message : 'desconocido'
-      setError(`No pude abrir la cámara: ${msg}`)
+      const err = e as { name?: string; message?: string }
+      const friendly =
+        err.name === 'NotAllowedError' ? 'Permiso denegado. Permití el acceso a la cámara en el navegador y recargá.' :
+        err.name === 'NotFoundError' ? 'No hay cámara conectada.' :
+        err.name === 'NotReadableError' ? 'Otra app está usando la cámara (Zoom, Meet, etc). Cerrala y reintentá.' :
+        `No pude abrir la cámara: ${err.message || err.name}`
+      setError(friendly)
     }
-  }, [barcodeApiSupported, detectLoop])
+  }, [cameraSupported, detectLoop])
 
   const stopCamera = useCallback(() => {
     if (rafRef.current) cancelAnimationFrame(rafRef.current)
@@ -273,8 +297,8 @@ export default function EscanearPage() {
 
       {/* Capacidades */}
       <div className="flex flex-wrap gap-2">
-        <Badge variant={barcodeApiSupported ? 'success' : 'danger'}>
-          {barcodeApiSupported === null ? 'Detectando…' : barcodeApiSupported ? 'Cámara/QR: OK' : 'Cámara/QR: no soportado'}
+        <Badge variant={cameraSupported ? 'success' : 'danger'}>
+          {cameraSupported === null ? 'Detectando…' : cameraSupported ? 'Cámara/QR: OK' : 'Cámara/QR: no soportado'}
         </Badge>
         <Badge variant={nfcSupported ? 'success' : 'default'}>
           {nfcSupported ? 'NFC: disponible' : 'NFC: no disponible (usá Android Chrome)'}
@@ -333,7 +357,7 @@ export default function EscanearPage() {
       {/* Controles cámara/NFC */}
       <div className="flex flex-wrap gap-3">
         {!cameraOn ? (
-          <Button onClick={startCamera} disabled={barcodeApiSupported === false}>
+          <Button onClick={startCamera} disabled={cameraSupported === false}>
             <Camera size={16} className="mr-2" /> Iniciar cámara
           </Button>
         ) : (
