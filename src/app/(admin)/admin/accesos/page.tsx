@@ -35,6 +35,29 @@ const CREDENTIAL_TYPES: Record<string, { label: string; icon: React.ReactNode }>
   facial: { label: 'Facial', icon: <Eye size={14} /> },
 }
 
+function UserAvatar({ url, name, size = 32 }: { url?: string | null; name?: string | null; size?: number }) {
+  const initials = (name || '?').split(' ').slice(0, 2).map(p => p[0]?.toUpperCase() || '').join('') || '?'
+  if (url) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        src={url}
+        alt={name || ''}
+        className="rounded-full object-cover bg-slate-700 flex-shrink-0"
+        style={{ width: size, height: size }}
+      />
+    )
+  }
+  return (
+    <div
+      className="rounded-full bg-slate-700 text-slate-300 flex items-center justify-center flex-shrink-0 font-medium"
+      style={{ width: size, height: size, fontSize: size * 0.4 }}
+    >
+      {initials}
+    </div>
+  )
+}
+
 export default function AccesosPage() {
   const { toast } = useToast()
   const [tab, setTab] = useState<Tab>('Puntos de Acceso')
@@ -77,7 +100,7 @@ export default function AccesosPage() {
     const supabase = createClient()
     const { data } = await supabase
       .from('nm_access_credentials')
-      .select('*, user:nm_users(id, full_name, email)')
+      .select('*, user:nm_users(id, full_name, email, avatar_url)')
       .eq('club_id', 1)
       .order('created_at', { ascending: false })
     setCredentials((data || []) as unknown as AccessCredential[])
@@ -91,7 +114,7 @@ export default function AccesosPage() {
     const endOfDay = `${logDate}T23:59:59`
     const { data } = await supabase
       .from('nm_access_logs')
-      .select('*, user:nm_users(id, full_name, email), access_point:nm_access_points(id, name)')
+      .select('*, user:nm_users(id, full_name, email, avatar_url), access_point:nm_access_points(id, name)')
       .eq('club_id', 1)
       .gte('timestamp', startOfDay)
       .lte('timestamp', endOfDay)
@@ -335,12 +358,17 @@ export default function AccesosPage() {
                   ) : filteredCreds.length === 0 ? (
                     <tr><td colSpan={5} className="text-center py-8 text-slate-500">No hay credenciales registradas</td></tr>
                   ) : filteredCreds.map(c => {
-                    const u = c.user as unknown as { full_name?: string; email?: string } | null
+                    const u = c.user as unknown as { full_name?: string; email?: string; avatar_url?: string | null } | null
                     return (
                       <tr key={c.id} className="border-b border-slate-800 hover:bg-slate-800/30">
                         <td className="py-3 pl-2">
-                          <p className="text-sm text-white">{u?.full_name || 'Sin nombre'}</p>
-                          <p className="text-xs text-slate-500">{u?.email}</p>
+                          <div className="flex items-center gap-3">
+                            <UserAvatar url={u?.avatar_url} name={u?.full_name} size={36} />
+                            <div>
+                              <p className="text-sm text-white">{u?.full_name || 'Sin nombre'}</p>
+                              <p className="text-xs text-slate-500">{u?.email}</p>
+                            </div>
+                          </div>
                         </td>
                         <td className="py-3">
                           <div className="flex items-center gap-1.5 text-sm text-slate-300">
@@ -442,7 +470,7 @@ export default function AccesosPage() {
                   ) : logs.length === 0 ? (
                     <tr><td colSpan={6} className="text-center py-8 text-slate-500">No hay registros para este día</td></tr>
                   ) : logs.map(log => {
-                    const u = log.user as unknown as { full_name?: string; email?: string } | null
+                    const u = log.user as unknown as { full_name?: string; email?: string; avatar_url?: string | null } | null
                     const ap = log.access_point as unknown as { name?: string } | null
                     return (
                       <tr key={log.id} className="border-b border-slate-800 hover:bg-slate-800/30">
@@ -450,8 +478,13 @@ export default function AccesosPage() {
                           {new Date(log.timestamp).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
                         </td>
                         <td className="py-3">
-                          <p className="text-sm text-white">{u?.full_name || 'Desconocido'}</p>
-                          {u?.email && <p className="text-xs text-slate-500">{u.email}</p>}
+                          <div className="flex items-center gap-3">
+                            <UserAvatar url={u?.avatar_url} name={u?.full_name} size={36} />
+                            <div>
+                              <p className="text-sm text-white">{u?.full_name || 'Desconocido'}</p>
+                              {u?.email && <p className="text-xs text-slate-500">{u.email}</p>}
+                            </div>
+                          </div>
                         </td>
                         <td className="py-3 text-sm text-slate-400">{ap?.name || '—'}</td>
                         <td className="py-3">
