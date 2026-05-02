@@ -7,6 +7,7 @@ import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Camera, CameraOff, CheckCircle, XCircle, Nfc, QrCode, RefreshCw, Link2, Search } from 'lucide-react'
+import { FichaSocio } from '@/components/access/ficha-socio'
 
 type Mode = 'validate' | 'link-nfc'
 
@@ -15,12 +16,14 @@ type ScanResult = {
   title: string
   subtitle: string
   avatar_url?: string | null
+  user_id?: string | null
+  reason?: string | null
   at: number
 }
 
 type SocioLite = { id: string; full_name: string | null; email: string | null }
 
-const RESULT_DISPLAY_MS = 4000
+const RESULT_DISPLAY_MS = 10000  // 10 segundos
 const SCAN_DEBOUNCE_MS = 2500
 
 export default function EscanearPage() {
@@ -94,6 +97,8 @@ export default function EscanearPage() {
         title: data.granted ? 'PERMITIDO' : 'DENEGADO',
         subtitle: data.granted ? (data.user_name || 'Socio') : `${data.user_name ? data.user_name + ' — ' : ''}${friendlyReason(data.reason)}`,
         avatar_url: data.avatar_url,
+        user_id: data.user_id,
+        reason: data.reason ? friendlyReason(data.reason) : null,
       })
     } catch {
       showResult({ ok: false, title: 'ERROR', subtitle: 'Error de conexión' })
@@ -394,39 +399,32 @@ export default function EscanearPage() {
             </div>
           )}
 
-          {result && (
+          {result && !result.user_id && (
             <div className={`absolute inset-0 flex flex-col items-center justify-center backdrop-blur-sm ${
               result.ok ? 'bg-green-500/40' : 'bg-red-500/40'
             }`}>
-              {result.avatar_url ? (
-                <div className="relative">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={result.avatar_url}
-                    alt={result.subtitle}
-                    className={`w-32 h-32 rounded-full object-cover border-4 ${
-                      result.ok ? 'border-green-300' : 'border-red-300'
-                    }`}
-                  />
-                  <div className={`absolute -bottom-2 -right-2 rounded-full p-1 ${
-                    result.ok ? 'bg-green-500' : 'bg-red-500'
-                  }`}>
-                    {result.ok
-                      ? <CheckCircle size={32} className="text-white" />
-                      : <XCircle size={32} className="text-white" />}
-                  </div>
-                </div>
-              ) : (
-                result.ok
-                  ? <CheckCircle size={96} className="text-green-300" />
-                  : <XCircle size={96} className="text-red-300" />
-              )}
+              {result.ok
+                ? <CheckCircle size={96} className="text-green-300" />
+                : <XCircle size={96} className="text-red-300" />}
               <p className="mt-4 text-3xl font-bold text-white">{result.title}</p>
               <p className="mt-2 text-lg text-white/90 px-4 text-center">{result.subtitle}</p>
             </div>
           )}
         </div>
       </Card>
+
+      {/* Ficha rápida del socio (10 seg) si validate devolvió user_id */}
+      {result?.user_id && (
+        <div className="animate-in fade-in slide-in-from-bottom-4 duration-300">
+          <FichaSocio
+            userId={result.user_id}
+            granted={result.ok}
+            reason={result.reason || undefined}
+            variant="overlay"
+            onClose={() => setResult(null)}
+          />
+        </div>
+      )}
 
       <p className="text-xs text-slate-500 text-center">
         En pantalla completa del celular, esto funciona como un lector portátil de mesa.

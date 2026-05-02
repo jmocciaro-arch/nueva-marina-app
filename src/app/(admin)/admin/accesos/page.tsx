@@ -11,6 +11,7 @@ import { Badge } from '@/components/ui/badge'
 import { KpiCard } from '@/components/ui/kpi-card'
 import { useToast } from '@/components/ui/toast'
 import { QRCodeDisplay } from '@/components/qr-code'
+import { FichaSocio } from '@/components/access/ficha-socio'
 import {
   DoorOpen, Plus, QrCode, Nfc, Users, CheckCircle, XCircle,
   Trash2, ChevronLeft, ChevronRight, Shield, Clock, Search,
@@ -81,6 +82,9 @@ export default function AccesosPage() {
   const [logs, setLogs] = useState<AccessLog[]>([])
   const [loadingLogs, setLoadingLogs] = useState(true)
   const [logDate, setLogDate] = useState(() => new Date().toISOString().split('T')[0])
+
+  // ─── Modal de Ficha Completa de Socio ───
+  const [fichaUserId, setFichaUserId] = useState<string | null>(null)
 
   // ─── Load data ───
   const loadPoints = useCallback(async () => {
@@ -359,16 +363,23 @@ export default function AccesosPage() {
                     <tr><td colSpan={5} className="text-center py-8 text-slate-500">No hay credenciales registradas</td></tr>
                   ) : filteredCreds.map(c => {
                     const u = c.user as unknown as { full_name?: string; email?: string; avatar_url?: string | null } | null
+                    const credUserId = c.user_id ? String(c.user_id) : null
                     return (
                       <tr key={c.id} className="border-b border-slate-800 hover:bg-slate-800/30">
                         <td className="py-3 pl-2">
-                          <div className="flex items-center gap-3">
+                          <button
+                            type="button"
+                            onClick={() => credUserId && setFichaUserId(credUserId)}
+                            disabled={!credUserId}
+                            className={`flex items-center gap-3 text-left ${credUserId ? 'hover:opacity-80 cursor-pointer' : 'cursor-default'}`}
+                            title={credUserId ? 'Ver ficha completa' : ''}
+                          >
                             <UserAvatar url={u?.avatar_url} name={u?.full_name} size={36} />
                             <div>
-                              <p className="text-sm text-white">{u?.full_name || 'Sin nombre'}</p>
+                              <p className={`text-sm ${credUserId ? 'text-cyan-400 hover:text-cyan-300' : 'text-white'}`}>{u?.full_name || 'Sin nombre'}</p>
                               <p className="text-xs text-slate-500">{u?.email}</p>
                             </div>
-                          </div>
+                          </button>
                         </td>
                         <td className="py-3">
                           <div className="flex items-center gap-1.5 text-sm text-slate-300">
@@ -472,19 +483,26 @@ export default function AccesosPage() {
                   ) : logs.map(log => {
                     const u = log.user as unknown as { full_name?: string; email?: string; avatar_url?: string | null } | null
                     const ap = log.access_point as unknown as { name?: string } | null
+                    const userIdClickable = log.user_id ? String(log.user_id) : null
                     return (
                       <tr key={log.id} className="border-b border-slate-800 hover:bg-slate-800/30">
                         <td className="py-3 pl-2 text-sm text-slate-400 tabular-nums">
                           {new Date(log.timestamp).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
                         </td>
                         <td className="py-3">
-                          <div className="flex items-center gap-3">
+                          <button
+                            type="button"
+                            onClick={() => userIdClickable && setFichaUserId(userIdClickable)}
+                            disabled={!userIdClickable}
+                            className={`flex items-center gap-3 text-left ${userIdClickable ? 'hover:opacity-80 cursor-pointer' : 'cursor-default'}`}
+                            title={userIdClickable ? 'Ver ficha completa' : ''}
+                          >
                             <UserAvatar url={u?.avatar_url} name={u?.full_name} size={36} />
                             <div>
-                              <p className="text-sm text-white">{u?.full_name || 'Desconocido'}</p>
+                              <p className={`text-sm ${userIdClickable ? 'text-cyan-400 hover:text-cyan-300' : 'text-white'}`}>{u?.full_name || 'Desconocido'}</p>
                               {u?.email && <p className="text-xs text-slate-500">{u.email}</p>}
                             </div>
-                          </div>
+                          </button>
                         </td>
                         <td className="py-3 text-sm text-slate-400">{ap?.name || '—'}</td>
                         <td className="py-3">
@@ -510,6 +528,16 @@ export default function AccesosPage() {
           </Card>
         </>
       )}
+
+      {/* Modal de Ficha Completa del Socio (al hacer click en cualquier nombre) */}
+      <Modal open={!!fichaUserId} onClose={() => setFichaUserId(null)} title="Ficha del socio" size="lg">
+        {fichaUserId && (
+          <FichaSocio
+            userId={fichaUserId}
+            variant="modal"
+          />
+        )}
+      </Modal>
     </div>
   )
 }

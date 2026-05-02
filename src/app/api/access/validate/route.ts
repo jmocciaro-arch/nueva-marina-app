@@ -75,7 +75,13 @@ async function handleValidation(params: {
 
   if (!user || !user.is_active) {
     await logAccess(supabase, { user_id: credential.user_id, access_point_id, credential_type, granted: false, denial_reason: 'user_inactive' })
-    return NextResponse.json({ granted: false, reason: 'user_inactive', user_name: user?.full_name, avatar_url: user?.avatar_url })
+    return NextResponse.json({
+      granted: false,
+      reason: 'user_inactive',
+      user_id: credential.user_id,
+      user_name: user?.full_name,
+      avatar_url: user?.avatar_url,
+    })
   }
 
   // 3. Check user has active membership or subscription
@@ -92,6 +98,7 @@ async function handleValidation(params: {
     return NextResponse.json({
       granted: false,
       reason: 'no_active_membership',
+      user_id: credential.user_id,
       user_name: user.full_name,
       avatar_url: user.avatar_url,
     })
