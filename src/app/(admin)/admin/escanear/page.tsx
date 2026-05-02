@@ -14,6 +14,7 @@ type ScanResult = {
   ok: boolean
   title: string
   subtitle: string
+  avatar_url?: string | null
   at: number
 }
 
@@ -91,7 +92,8 @@ export default function EscanearPage() {
       showResult({
         ok: !!data.granted,
         title: data.granted ? 'PERMITIDO' : 'DENEGADO',
-        subtitle: data.granted ? (data.user_name || 'Socio') : friendlyReason(data.reason),
+        subtitle: data.granted ? (data.user_name || 'Socio') : `${data.user_name ? data.user_name + ' — ' : ''}${friendlyReason(data.reason)}`,
+        avatar_url: data.avatar_url,
       })
     } catch {
       showResult({ ok: false, title: 'ERROR', subtitle: 'Error de conexión' })
@@ -396,10 +398,28 @@ export default function EscanearPage() {
             <div className={`absolute inset-0 flex flex-col items-center justify-center backdrop-blur-sm ${
               result.ok ? 'bg-green-500/40' : 'bg-red-500/40'
             }`}>
-              {result.ok ? (
-                <CheckCircle size={96} className="text-green-300" />
+              {result.avatar_url ? (
+                <div className="relative">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={result.avatar_url}
+                    alt={result.subtitle}
+                    className={`w-32 h-32 rounded-full object-cover border-4 ${
+                      result.ok ? 'border-green-300' : 'border-red-300'
+                    }`}
+                  />
+                  <div className={`absolute -bottom-2 -right-2 rounded-full p-1 ${
+                    result.ok ? 'bg-green-500' : 'bg-red-500'
+                  }`}>
+                    {result.ok
+                      ? <CheckCircle size={32} className="text-white" />
+                      : <XCircle size={32} className="text-white" />}
+                  </div>
+                </div>
               ) : (
-                <XCircle size={96} className="text-red-300" />
+                result.ok
+                  ? <CheckCircle size={96} className="text-green-300" />
+                  : <XCircle size={96} className="text-red-300" />
               )}
               <p className="mt-4 text-3xl font-bold text-white">{result.title}</p>
               <p className="mt-2 text-lg text-white/90 px-4 text-center">{result.subtitle}</p>

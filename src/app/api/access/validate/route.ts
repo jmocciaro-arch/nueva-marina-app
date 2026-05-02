@@ -69,19 +69,19 @@ async function handleValidation(params: {
   // 2. Check user is active
   const { data: user } = await supabase
     .from('nm_users')
-    .select('id, full_name, is_active')
+    .select('id, full_name, is_active, avatar_url')
     .eq('id', credential.user_id)
     .single()
 
   if (!user || !user.is_active) {
     await logAccess(supabase, { user_id: credential.user_id, access_point_id, credential_type, granted: false, denial_reason: 'user_inactive' })
-    return NextResponse.json({ granted: false, reason: 'user_inactive' })
+    return NextResponse.json({ granted: false, reason: 'user_inactive', user_name: user?.full_name, avatar_url: user?.avatar_url })
   }
 
   // 3. Check user has active membership or subscription
   const { data: membership } = await supabase
     .from('nm_club_members')
-    .select('id, is_active')
+    .select('id, is_active, membership_type, membership_end')
     .eq('user_id', credential.user_id)
     .eq('club_id', 1)
     .eq('is_active', true)
@@ -89,7 +89,12 @@ async function handleValidation(params: {
 
   if (!membership) {
     await logAccess(supabase, { user_id: credential.user_id, access_point_id, credential_type, granted: false, denial_reason: 'no_active_membership' })
-    return NextResponse.json({ granted: false, reason: 'no_active_membership' })
+    return NextResponse.json({
+      granted: false,
+      reason: 'no_active_membership',
+      user_name: user.full_name,
+      avatar_url: user.avatar_url,
+    })
   }
 
   // Optional: check gym membership if access point is gym-specific
@@ -133,6 +138,9 @@ async function handleValidation(params: {
     granted: true,
     user_id: credential.user_id,
     user_name: user.full_name,
+    avatar_url: user.avatar_url,
+    membership_type: membership.membership_type,
+    membership_end: membership.membership_end,
   })
 }
 
